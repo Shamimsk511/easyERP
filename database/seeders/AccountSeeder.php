@@ -1,0 +1,537 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
+class AccountSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $now = Carbon::now();
+        $openingDate = Carbon::now()->startOfYear();
+
+        $accounts = [
+            // ASSETS (1000-1999)
+            [
+                'code' => '1000',
+                'name' => 'Assets',
+                'type' => 'asset',
+                'description' => 'All assets owned by the business',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1100',
+                'name' => 'Current Assets',
+                'type' => 'asset',
+                'description' => 'Assets expected to be converted to cash within one year',
+                'parent_account_id' => 1, // Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1110',
+                'name' => 'Cash in Hand',
+                'type' => 'asset',
+                'description' => 'Physical cash available at the shop',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1120',
+                'name' => 'Cash at Bank',
+                'type' => 'asset',
+                'description' => 'Bank account balance',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1130',
+                'name' => 'Accounts Receivable',
+                'type' => 'asset',
+                'description' => 'Money owed by customers for credit sales',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1140',
+                'name' => 'Inventory - Tiles',
+                'type' => 'asset',
+                'description' => 'Stock of tiles',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1150',
+                'name' => 'Inventory - Sanitary Ware',
+                'type' => 'asset',
+                'description' => 'Stock of sanitary fixtures and fittings',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1160',
+                'name' => 'Inventory - Paint & Supplies',
+                'type' => 'asset',
+                'description' => 'Stock of paints and painting supplies',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1170',
+                'name' => 'Prepaid Expenses',
+                'type' => 'asset',
+                'description' => 'Advance payments for future expenses',
+                'parent_account_id' => 2, // Current Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1200',
+                'name' => 'Fixed Assets',
+                'type' => 'asset',
+                'description' => 'Long-term assets used in business operations',
+                'parent_account_id' => 1, // Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1210',
+                'name' => 'Shop Furniture & Fixtures',
+                'type' => 'asset',
+                'description' => 'Display racks, shelves, counters, etc.',
+                'parent_account_id' => 10, // Fixed Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1220',
+                'name' => 'Office Equipment',
+                'type' => 'asset',
+                'description' => 'Computers, printers, and other office equipment',
+                'parent_account_id' => 10, // Fixed Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '1230',
+                'name' => 'Vehicle',
+                'type' => 'asset',
+                'description' => 'Delivery vehicle or transport',
+                'parent_account_id' => 10, // Fixed Assets
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+
+            // LIABILITIES (2000-2999)
+            [
+                'code' => '2000',
+                'name' => 'Liabilities',
+                'type' => 'liability',
+                'description' => 'All obligations and debts of the business',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '2100',
+                'name' => 'Current Liabilities',
+                'type' => 'liability',
+                'description' => 'Debts due within one year',
+                'parent_account_id' => 14, // Liabilities
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '2110',
+                'name' => 'Accounts Payable',
+                'type' => 'liability',
+                'description' => 'Amount owed to suppliers for credit purchases',
+                'parent_account_id' => 15, // Current Liabilities
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '2120',
+                'name' => 'Short-term Loans',
+                'type' => 'liability',
+                'description' => 'Bank loans and overdrafts',
+                'parent_account_id' => 15, // Current Liabilities
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '2130',
+                'name' => 'Accrued Expenses',
+                'type' => 'liability',
+                'description' => 'Expenses incurred but not yet paid',
+                'parent_account_id' => 15, // Current Liabilities
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '2200',
+                'name' => 'Long-term Liabilities',
+                'type' => 'liability',
+                'description' => 'Debts due after one year',
+                'parent_account_id' => 14, // Liabilities
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '2210',
+                'name' => 'Long-term Loans',
+                'type' => 'liability',
+                'description' => 'Bank loans payable over multiple years',
+                'parent_account_id' => 19, // Long-term Liabilities
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+
+            // EQUITY (3000-3999)
+            [
+                'code' => '3000',
+                'name' => 'Equity',
+                'type' => 'equity',
+                'description' => 'Owner\'s equity in the business',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '3100',
+                'name' => 'Owner\'s Capital',
+                'type' => 'equity',
+                'description' => 'Owner\'s investment in the business',
+                'parent_account_id' => 21, // Equity
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '3200',
+                'name' => 'Owner\'s Drawings',
+                'type' => 'equity',
+                'description' => 'Money withdrawn by owner for personal use',
+                'parent_account_id' => 21, // Equity
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '3300',
+                'name' => 'Retained Earnings',
+                'type' => 'equity',
+                'description' => 'Accumulated profits retained in the business',
+                'parent_account_id' => 21, // Equity
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+
+            // INCOME (4000-4999)
+            [
+                'code' => '4000',
+                'name' => 'Revenue',
+                'type' => 'income',
+                'description' => 'Income from business operations',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '4100',
+                'name' => 'Sales - Tiles',
+                'type' => 'income',
+                'description' => 'Revenue from tiles sales',
+                'parent_account_id' => 25, // Revenue
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '4200',
+                'name' => 'Sales - Sanitary Ware',
+                'type' => 'income',
+                'description' => 'Revenue from sanitary ware sales',
+                'parent_account_id' => 25, // Revenue
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '4300',
+                'name' => 'Sales - Paint & Supplies',
+                'type' => 'income',
+                'description' => 'Revenue from paint and supplies sales',
+                'parent_account_id' => 25, // Revenue
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '4400',
+                'name' => 'Sales Discount',
+                'type' => 'income',
+                'description' => 'Discounts given to customers (contra-revenue)',
+                'parent_account_id' => 25, // Revenue
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '4500',
+                'name' => 'Other Income',
+                'type' => 'income',
+                'description' => 'Non-operating income',
+                'parent_account_id' => 25, // Revenue
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+
+            // EXPENSES - COST OF GOODS SOLD (5000-5999)
+            [
+                'code' => '5000',
+                'name' => 'Cost of Goods Sold',
+                'type' => 'expense',
+                'description' => 'Direct costs of products sold',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '5100',
+                'name' => 'Purchase - Tiles',
+                'type' => 'expense',
+                'description' => 'Cost of tiles purchased for resale',
+                'parent_account_id' => 31, // COGS
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '5200',
+                'name' => 'Purchase - Sanitary Ware',
+                'type' => 'expense',
+                'description' => 'Cost of sanitary ware purchased for resale',
+                'parent_account_id' => 31, // COGS
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '5300',
+                'name' => 'Purchase - Paint & Supplies',
+                'type' => 'expense',
+                'description' => 'Cost of paint and supplies purchased for resale',
+                'parent_account_id' => 31, // COGS
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '5400',
+                'name' => 'Freight & Transportation In',
+                'type' => 'expense',
+                'description' => 'Cost of transporting purchased goods to shop',
+                'parent_account_id' => 31, // COGS
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '5500',
+                'name' => 'Purchase Discount',
+                'type' => 'expense',
+                'description' => 'Discounts received from suppliers (contra-expense)',
+                'parent_account_id' => 31, // COGS
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+
+            // EXPENSES - OPERATING EXPENSES (6000-6999)
+            [
+                'code' => '6000',
+                'name' => 'Operating Expenses',
+                'type' => 'expense',
+                'description' => 'Day-to-day business expenses',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6100',
+                'name' => 'Salaries & Wages',
+                'type' => 'expense',
+                'description' => 'Employee salaries and daily wages',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6200',
+                'name' => 'Shop Rent',
+                'type' => 'expense',
+                'description' => 'Monthly rent for shop premises',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6300',
+                'name' => 'Utilities',
+                'type' => 'expense',
+                'description' => 'Electricity, water, gas, and internet',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6400',
+                'name' => 'Marketing & Advertising',
+                'type' => 'expense',
+                'description' => 'Promotional expenses and advertising costs',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6500',
+                'name' => 'Delivery Expenses',
+                'type' => 'expense',
+                'description' => 'Cost of delivering goods to customers',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6600',
+                'name' => 'Maintenance & Repairs',
+                'type' => 'expense',
+                'description' => 'Shop and equipment maintenance',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6700',
+                'name' => 'Office Supplies',
+                'type' => 'expense',
+                'description' => 'Stationery, printing, and office materials',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6800',
+                'name' => 'Bank Charges',
+                'type' => 'expense',
+                'description' => 'Bank fees and transaction charges',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '6900',
+                'name' => 'Miscellaneous Expenses',
+                'type' => 'expense',
+                'description' => 'Other minor business expenses',
+                'parent_account_id' => 37, // Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+
+            // EXPENSES - NON-OPERATING (7000-7999)
+            [
+                'code' => '7000',
+                'name' => 'Non-Operating Expenses',
+                'type' => 'expense',
+                'description' => 'Expenses not related to core operations',
+                'parent_account_id' => null,
+                'opening_balance' => 0,
+                'opening_balance_date' => null,
+                'is_active' => true,
+            ],
+            [
+                'code' => '7100',
+                'name' => 'Interest Expense',
+                'type' => 'expense',
+                'description' => 'Interest paid on loans and overdrafts',
+                'parent_account_id' => 47, // Non-Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+            [
+                'code' => '7200',
+                'name' => 'Depreciation',
+                'type' => 'expense',
+                'description' => 'Depreciation of fixed assets',
+                'parent_account_id' => 47, // Non-Operating Expenses
+                'opening_balance' => 0,
+                'opening_balance_date' => $openingDate,
+                'is_active' => true,
+            ],
+        ];
+
+        foreach ($accounts as $account) {
+            DB::table('accounts')->insert([
+                'code' => $account['code'],
+                'name' => $account['name'],
+                'type' => $account['type'],
+                'description' => $account['description'],
+                'parent_account_id' => $account['parent_account_id'],
+                'opening_balance' => $account['opening_balance'],
+                'opening_balance_date' => $account['opening_balance_date'],
+                'is_active' => $account['is_active'],
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+    }
+}

@@ -1,7 +1,9 @@
 <?php
 
-use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AccountController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\TransactionController;
 
 // Route::get('/', function () {
 //     return view('dashboard');
@@ -13,7 +15,15 @@ Route::middleware((['auth']))->group(function () {
     })->name('dashboard');
 });
 
+Route::middleware(['auth'])->group(function () {
+    Route::resource('accounts', AccountController::class);
+    Route::resource('transactions', TransactionController::class);
 
+    
+    // Additional transaction route
+    Route::post('transactions/{transaction}/void', [TransactionController::class, 'void'])
+        ->name('transactions.void');
+});
 // Route::get('/dashboard', function () {
 //     return view('dashboard');
 // })->middleware(['auth', 'verified'])->name('dashboard');
