@@ -339,6 +339,29 @@ return [
                 ],
             ],
         ],
+        [
+            'text' => 'Products',
+            'icon' => 'fas fa-boxes',
+            'label_color' => 'success',
+            'submenu' => [
+                [
+                    'text' => 'Product Groups',
+                    'url'  => 'product-groups',
+                    'icon' => 'fas fa-layer-group',
+                ],
+                [
+                    'text' => 'Products',
+                    'url'  => 'products',
+                    'icon' => 'fas fa-box',
+                ],
+                [
+                    'text' => 'Units',
+                    'url' => 'units',
+                    'icon' => 'fas fa-ruler-combined',
+                ],
+
+            ],
+        ],
        
         
         

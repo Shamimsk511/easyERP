@@ -68,7 +68,8 @@
                                 <td>{{ $transaction->date->format('d M Y') }}</td>
                                 <td>{{ $transaction->reference ?? '-' }}</td>
                                 <td>{{ $transaction->description }}</td>
-                                <td class="text-right">{{ number_format($transaction->getTotalDebits(), 2) }}</td>
+                                <td class="text-right">৳ {{ number_format($transaction->total_debit, 2) }}</td>
+
                                 <td>
                                     @if($transaction->status == 'posted')
                                         <span class="badge badge-success">Posted</span>

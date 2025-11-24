@@ -90,4 +90,18 @@ class Account extends Model
     {
         return in_array($this->type, ['liability', 'equity', 'income']);
     }
+    public function parent()
+    {
+        return $this->belongsTo(Account::class, 'parent_account_id');
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeInventoryAccounts($query)
+    {
+        return $query->where('name', 'LIKE', '%Inventory%')->where('type', 'asset');
+    }
 }
