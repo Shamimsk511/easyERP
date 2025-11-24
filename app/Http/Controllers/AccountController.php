@@ -248,11 +248,21 @@ public function getTransactions(Request $request, Account $account)
                     : '<span class="text-muted">-</span>';
             })
             ->addColumn('actions', function ($entry) {
-                return '<a href="' . route('transactions.show', $entry->transaction_id) . '" 
-                        class="btn btn-sm btn-info" title="View Transaction">
-                        <i class="fas fa-eye"></i>
-                        </a>';
+                $viewBtn = '<a href="' . route('transactions.show', $entry->transaction_id) . '" 
+                            class="btn btn-sm btn-info" title="View Transaction">
+                            <i class="fas fa-eye"></i>
+                            </a>';
+                
+                $deleteBtn = '<button type="button" 
+                                class="btn btn-sm btn-danger delete-transaction" 
+                                data-id="' . $entry->transaction_id . '" 
+                                title="Delete Transaction">
+                                <i class="fas fa-trash"></i>
+                                </button>';
+                
+                return $viewBtn . ' ' . $deleteBtn;
             })
+
             ->rawColumns(['other_account', 'debit', 'credit', 'actions'])
             ->make(true);
     }

@@ -219,7 +219,64 @@
             $('#otherAccountId').val('');
             table.draw();
         });
+
+        // Delete transaction handler with SweetAlert2
+        $(document).on('click', '.delete-transaction', function() {
+            var transactionId = $(this).data('id');
+            
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "This will permanently delete the transaction and all related entries!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, delete it!',
+                cancelButtonText: 'Cancel'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $.ajax({
+                        url: '/transactions/' + transactionId,
+                        type: 'DELETE',
+                        data: {
+                            "_token": "{{ csrf_token() }}"
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Deleted!',
+                                    text: response.message,
+                                    timer: 2000,
+                                    showConfirmButton: false
+                                });
+                                
+                                // Reload DataTable without resetting pagination
+                                table.ajax.reload(null, false);
+                            } else {
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error!',
+                                    text: response.message
+                                });
+                            }
+                        },
+                        error: function(xhr) {
+                            var message = xhr.responseJSON && xhr.responseJSON.message 
+                                ? xhr.responseJSON.message 
+                                : 'Error deleting transaction';
+                            
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Error!',
+                                text: message,
+                                timer: 3000
+                            });
+                        }
+                    });
+                }
+            });
+        });
     });
 </script>
 @stop
-

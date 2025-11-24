@@ -51,7 +51,7 @@
 
             <!-- Transactions Table -->
             <div class="table-responsive">
-                <table class="table table-bordered table-striped table-hover">
+                <table class="table table-bordered table-striped table-hover" id="transactionsTable">
                     <thead>
                         <tr>
                             <th>Date</th>
@@ -64,7 +64,7 @@
                     </thead>
                     <tbody>
                         @forelse($transactions as $transaction)
-                            <tr>
+                            <tr id="transaction-row-{{ $transaction->id }}">
                                 <td>{{ $transaction->date->format('d M Y') }}</td>
                                 <td>{{ $transaction->reference ?? '-' }}</td>
                                 <td>{{ $transaction->description }}</td>
@@ -86,18 +86,20 @@
                                         <a href="{{ route('transactions.edit', $transaction) }}" class="btn btn-warning btn-sm" title="Edit">
                                             <i class="fas fa-edit"></i>
                                         </a>
-                                        <form action="{{ route('transactions.destroy', $transaction) }}" method="POST" style="display: inline-block;">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure?')" title="Delete">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </form>
                                     @endif
+                                    
+                                    <!-- Delete button with AJAX -->
+                                    <button type="button" 
+                                            class="btn btn-danger btn-sm delete-transaction" 
+                                            data-id="{{ $transaction->id }}" 
+                                            title="Delete">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    
                                     @if($transaction->status == 'posted')
                                         <form action="{{ route('transactions.void', $transaction) }}" method="POST" style="display: inline-block;">
                                             @csrf
-                                            <button type="submit" class="btn btn-secondary btn-sm" onclick="return confirm('Void this transaction?')" title="Void">
+                                            <button type="submit" class="btn btn-secondary btn-sm void-transaction" onclick="return confirm('Void this transaction?')" title="Void">
                                                 <i class="fas fa-ban"></i>
                                             </button>
                                         </form>
@@ -120,18 +122,113 @@
     </div>
 @stop
 
+@push('js')
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+@endpush
+
 @section('js')
-    <script>
+<script>
+    $(document).ready(function() {
+        // Delete transaction with SweetAlert2
+        $(document).on('click', '.delete-transaction', function(e) {
+            e.preventDefault();
+            var transactionId = $(this).data('id');
+            var $row = $('#transaction-row-' + transactionId);
+            
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "This will permanently delete the transaction and all related entries!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, delete it!',
+                cancelButtonText: 'Cancel',
+                reverseButtons: true
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Show loading
+                    Swal.fire({
+                        title: 'Deleting...',
+                        html: 'Please wait',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
+                    });
+                    
+                    $.ajax({
+                        url: '{{ url('transactions') }}/' + transactionId,
+                        type: 'DELETE',
+                        headers: {
+                            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Deleted!',
+                                    text: response.message,
+                                    timer: 2000,
+                                    showConfirmButton: false
+                                });
+                                
+                                // Remove the row from table with animation
+                                $row.fadeOut(400, function() {
+                                    $(this).remove();
+                                    
+                                    // Check if table is now empty
+                                    if ($('#transactionsTable tbody tr').length === 0) {
+                                        $('#transactionsTable tbody').html(
+                                            '<tr><td colspan="6" class="text-center">No transactions found.</td></tr>'
+                                        );
+                                    }
+                                });
+                            } else {
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Error!',
+                                    text: response.message
+                                });
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.log('Error:', xhr.responseText);
+                            
+                            var message = 'An error occurred while deleting the transaction.';
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                message = xhr.responseJSON.message;
+                            }
+                            
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Error!',
+                                text: message
+                            });
+                        }
+                    });
+                }
+            });
+        });
+        
+        // Show success/error messages from session
         @if(session('success'))
-            $(document).ready(function() {
-                toastr.success('{{ session('success') }}');
+            Swal.fire({
+                icon: 'success',
+                title: 'Success!',
+                text: '{{ session('success') }}',
+                timer: 3000,
+                showConfirmButton: false
             });
         @endif
         
         @if(session('error'))
-            $(document).ready(function() {
-                toastr.error('{{ session('error') }}');
+            Swal.fire({
+                icon: 'error',
+                title: 'Error!',
+                text: '{{ session('error') }}'
             });
         @endif
-    </script>
+    });
+</script>
 @stop

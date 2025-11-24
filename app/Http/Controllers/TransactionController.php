@@ -169,21 +169,24 @@ public function create(Request $request)
         }
     }
 
-    public function destroy(Transaction $transaction)
-    {
-        // Only allow deleting draft transactions
-        if ($transaction->status !== 'draft') {
-            return redirect()
-                ->route('transactions.index')
-                ->with('error', 'Only draft transactions can be deleted.');
-        }
-        
+public function destroy(Transaction $transaction)
+{
+    try {
+        // Delete transaction (will cascade delete all entries)
         $transaction->delete();
         
-        return redirect()
-            ->route('transactions.index')
-            ->with('success', 'Transaction deleted successfully.');
+        return response()->json([
+            'success' => true,
+            'message' => 'Transaction deleted successfully.'
+        ]);
+        
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error deleting transaction: ' . $e->getMessage()
+        ], 500);
     }
+}
     
     // Additional method to void a transaction
     public function void(Transaction $transaction)
