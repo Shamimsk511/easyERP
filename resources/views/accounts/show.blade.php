@@ -70,45 +70,69 @@
                 </div>
             </div>
 
-            <!-- Recent Transactions -->
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Recent Transactions</h3>
+<!-- All Transactions - DataTable -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">All Transactions</h3>
+    </div>
+    
+    <div class="card-body">
+        <!-- Filter Form -->
+        <form id="filterForm" class="mb-3">
+            <div class="row">
+                <div class="col-md-3">
+                    <label>Date From</label>
+                    <input type="date" name="date_from" id="dateFrom" class="form-control form-control-sm">
                 </div>
-                
-                <div class="card-body p-0">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Description</th>
-                                <th>Debit</th>
-                                <th>Credit</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse($recentEntries as $entry)
-                                <tr>
-                                    <td>{{ $entry->transaction->date->format('d M Y') }}</td>
-                                    <td>{{ $entry->transaction->description }}</td>
-                                    <td class="text-right">{{ $entry->type == 'debit' ? number_format($entry->amount, 2) : '' }}</td>
-                                    <td class="text-right">{{ $entry->type == 'credit' ? number_format($entry->amount, 2) : '' }}</td>
-                                    <td>
-                                        <a href="{{ route('transactions.show', $entry->transaction) }}" class="btn btn-info btn-xs">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="5" class="text-center">No transactions found</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
+                <div class="col-md-3">
+                    <label>Date To</label>
+                    <input type="date" name="date_to" id="dateTo" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-2">
+                    <label>Type</label>
+                    <select name="transaction_type" id="transactionType" class="form-control form-control-sm">
+                        <option value="">All</option>
+                        <option value="debit">Debit</option>
+                        <option value="credit">Credit</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>Other Account</label>
+                    <select name="other_account_id" id="otherAccountId" class="form-control form-control-sm">
+                        <option value="">All Accounts</option>
+                        @foreach(\App\Models\Account::where('is_active', true)->where('id', '!=', $account->id)->orderBy('code')->get() as $acc)
+                            <option value="{{ $acc->id }}">{{ $acc->code }} - {{ $acc->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <label>&nbsp;</label>
+                    <button type="button" id="resetFilter" class="btn btn-secondary btn-sm btn-block" title="Reset Filters">
+                        <i class="fas fa-redo"></i>
+                    </button>
                 </div>
             </div>
+        </form>
+
+        <table id="transactionsTable" class="table table-bordered table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Reference</th>
+                    <th>Description</th>
+                    <th>Other Account</th>
+                    <th class="text-right">Debit</th>
+                    <th class="text-right">Credit</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- DataTables will populate this via AJAX -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
         </div>
 
         <div class="col-md-4">
@@ -145,3 +169,57 @@
         </div>
     </div>
 @stop
+
+@section('css')
+    {{-- DataTables CSS is already included in AdminLTE config --}}
+@stop
+
+@section('js')
+<script>
+    $(document).ready(function() {
+        var table = $('#transactionsTable').DataTable({
+            processing: true,
+            serverSide: true,
+            ajax: {
+                url: '{{ route('accounts.transactions', $account) }}',
+                data: function (d) {
+                    d.date_from = $('#dateFrom').val();
+                    d.date_to = $('#dateTo').val();
+                    d.transaction_type = $('#transactionType').val();
+                    d.other_account_id = $('#otherAccountId').val();
+                }
+            },
+            columns: [
+                { data: 'date', name: 't.date' },
+                { data: 'reference', name: 't.reference' },
+                { data: 'description', name: 't.description' },
+                { data: 'other_account', name: 'other_account', orderable: false, searchable: false },
+                { data: 'debit', name: 'debit', orderable: false, searchable: false, className: 'text-right' },
+                { data: 'credit', name: 'credit', orderable: false, searchable: false, className: 'text-right' },
+                { data: 'actions', name: 'actions', orderable: false, searchable: false }
+            ],
+            order: [[0, 'desc']],
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+            language: {
+                processing: '<i class="fas fa-spinner fa-spin fa-3x fa-fw"></i><span class="sr-only">Loading...</span>'
+            }
+        });
+
+        // Reload table when filters change
+        $('#dateFrom, #dateTo, #transactionType, #otherAccountId').on('change', function() {
+            table.draw();
+        });
+
+        // Reset filters
+        $('#resetFilter').on('click', function() {
+            $('#dateFrom').val('');
+            $('#dateTo').val('');
+            $('#transactionType').val('');
+            $('#otherAccountId').val('');
+            table.draw();
+        });
+    });
+</script>
+@stop
+

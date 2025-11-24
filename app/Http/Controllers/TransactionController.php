@@ -42,14 +42,17 @@ class TransactionController extends Controller
         return view('transactions.index', compact('transactions'));
     }
 
-    public function create()
-    {
-        $accounts = Account::where('is_active', true)
-            ->orderBy('code')
-            ->get();
-        
-        return view('transactions.create', compact('accounts'));
-    }
+public function create(Request $request)
+{
+    $accounts = Account::where('is_active', true)
+        ->orderBy('code')
+        ->get();
+    
+    $preselectedAccountId = $request->query('account_id'); // Get from URL
+    
+    return view('transactions.create', compact('accounts', 'preselectedAccountId'));
+}
+
 
     public function store(StoreTransactionRequest $request)
     {

@@ -41,8 +41,11 @@ class Transaction extends Model
     }
 
     public function isBalanced(): bool
-    {
-        return $this->getTotalDebits() == $this->getTotalCredits();
+{
+        $debits = $this->entries()->where('type', 'debit')->sum('amount');
+        $credits = $this->entries()->where('type', 'credit')->sum('amount');
+        
+        return abs($debits - $credits) < 0.01;
     }
 
     public function post()
