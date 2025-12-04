@@ -298,74 +298,346 @@ return [
     |
     */
 
-    'menu' => [
-        // Navbar items:
-        // [
-        //     'type' => 'navbar-search',
-        //     'text' => 'search',
-        //     'topnav_right' => true,
-        // ],
-        [
-            'type' => 'fullscreen-widget',
-            'topnav_right' => true,
-        ],
-
-        // Sidebar items:
-        [
-            'type' => 'sidebar-menu-search',
-            'text' => 'search',
-        ],
-
-        [
-            'text' => 'Accounts',
-            'url' => 'accounts',
-            'icon' => 'fas fa-university',
-            'label_color' => 'success',
-            'submenu' => [
-                [
-                    'text' => 'All Accounts',
-                    'url' => 'accounts',
-                    'icon' => 'fas fa-coins',
-                ],
-                [
-                    'text' => 'Transactions',
-                    'url' => 'transactions',
-                    'icon' => 'fas fa-list',
-                ],
-                [
-                    'text' => 'Add Transaction',
-                    'url' => 'transactions/create',
-                    'icon' => 'fas fa-plus-circle',
-                ],
-            ],
-        ],
-        [
-            'text' => 'Products',
-            'icon' => 'fas fa-boxes',
-            'label_color' => 'success',
-            'submenu' => [
-                [
-                    'text' => 'Product Groups',
-                    'url'  => 'product-groups',
-                    'icon' => 'fas fa-layer-group',
-                ],
-                [
-                    'text' => 'Products',
-                    'url'  => 'products',
-                    'icon' => 'fas fa-box',
-                ],
-                [
-                    'text' => 'Units',
-                    'url' => 'units',
-                    'icon' => 'fas fa-ruler-combined',
-                ],
-
-            ],
-        ],
-       
-        
-        
+'menu' => [
+    // Navbar items:
+    [
+        'type' => 'fullscreen-widget',
+        'topnav_right' => true,
     ],
+
+    // Sidebar items:
+    [
+        'type' => 'sidebar-menu-search',
+        'text' => 'search',
+    ],
+
+    // Dashboard
+    [
+        'text' => 'Dashboard',
+        'url' => '/',
+        'icon' => 'fas fa-tachometer-alt',
+        'icon_color' => 'primary',
+    ],
+
+    // Accounting Section
+    ['header' => 'ACCOUNTING & FINANCE'],
+    [
+        'text' => 'Chart of Accounts',
+        'url' => 'accounts',
+        'icon' => 'fas fa-university',
+        'icon_color' => 'info',
+    ],
+    [
+        'text' => 'Transactions',
+        'icon' => 'fas fa-exchange-alt',
+        'icon_color' => 'success',
+        'submenu' => [
+            [
+                'text' => 'All Transactions',
+                'url' => 'transactions',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'New Transaction',
+                'url' => 'transactions/create',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+    [
+        'text' => 'Reports',
+        'icon' => 'fas fa-chart-line',
+        'icon_color' => 'danger',
+        'submenu' => [
+            [
+                'text' => 'Trial Balance',
+                'url' => 'reports/trial-balance',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Balance Sheet',
+                'url' => 'reports/balance-sheet',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Profit & Loss',
+                'url' => 'reports/profit-loss',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Cash Flow',
+                'url' => 'reports/cash-flow',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+
+    // Inventory Management
+    ['header' => 'INVENTORY MANAGEMENT'],
+    [
+        'text' => 'Products',
+        'icon' => 'fas fa-boxes',
+        'icon_color' => 'teal',
+        'submenu' => [
+            [
+                'text' => 'All Products',
+                'url' => 'products',
+                'icon' => 'fas fa-box',
+            ],
+            [
+                'text' => 'Product Groups',
+                'url' => 'product-groups',
+                'icon' => 'fas fa-layer-group',
+            ],
+            [
+                'text' => 'Units of Measure',
+                'url' => 'units',
+                'icon' => 'fas fa-ruler-combined',
+            ],
+        ],
+    ],
+    [
+        'text' => 'Stock Reports',
+        'icon' => 'fas fa-warehouse',
+        'icon_color' => 'indigo',
+        'submenu' => [
+            [
+                'text' => 'Stock Summary',
+                'url' => 'reports/stock-summary',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Low Stock Alert',
+                'url' => 'reports/low-stock',
+                'icon' => 'far fa-circle',
+                'label' => 'Alert',
+                'label_color' => 'warning',
+            ],
+            [
+                'text' => 'Stock Valuation',
+                'url' => 'reports/stock-valuation',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+
+    // Purchase Management
+    ['header' => 'PURCHASE MANAGEMENT'],
+    [
+        'text' => 'Vendors',
+        'icon' => 'fas fa-truck',
+        'icon_color' => 'purple',
+        'submenu' => [
+            [
+                'text' => 'All Vendors',
+                'route' => 'vendors.index',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Add Vendor',
+                'route' => 'vendors.create',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+    [
+        'text' => 'Purchase Orders',
+        'icon' => 'fas fa-shopping-cart',
+        'icon_color' => 'orange',
+        'submenu' => [
+            [
+                'text' => 'All Orders',
+                'route' => 'purchase-orders.index',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Create Order',
+                'route' => 'purchase-orders.create',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Pending Orders',
+                'url' => 'purchase-orders?status=pending',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Received Orders',
+                'url' => 'purchase-orders?status=received',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+    [
+        'text' => 'Purchase Reports',
+        'icon' => 'fas fa-file-invoice-dollar',
+        'icon_color' => 'brown',
+        'submenu' => [
+            [
+                'text' => 'Purchase Register',
+                'url' => 'reports/purchase-register',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Vendor Wise',
+                'url' => 'reports/vendor-wise-purchase',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Outstanding Payables',
+                'url' => 'reports/payables',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+
+    // Sales Management
+    ['header' => 'SALES MANAGEMENT'],
+    [
+        'text' => 'Customers',
+        'icon' => 'fas fa-users',
+        'icon_color' => 'pink',
+        'submenu' => [
+            [
+                'text' => 'All Customers',
+                'route' => 'customers.index',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Add Customer',
+                'route' => 'customers.create',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Customer Groups',
+                'route' => 'customer-groups.index',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Overdue Customers',
+                'url' => 'customers?overdue=1',
+                'icon' => 'far fa-circle',
+                'label' => 'Alert',
+                'label_color' => 'danger',
+            ],
+        ],
+    ],
+    [
+        'text' => 'Sales Orders',
+        'icon' => 'fas fa-file-invoice',
+        'icon_color' => 'cyan',
+        'submenu' => [
+            [
+                'text' => 'All Sales',
+                'url' => 'sales',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'New Sale',
+                'url' => 'sales/create',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Pending Sales',
+                'url' => 'sales?status=pending',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+    [
+        'text' => 'Sales Reports',
+        'icon' => 'fas fa-chart-bar',
+        'icon_color' => 'lime',
+        'submenu' => [
+            [
+                'text' => 'Sales Register',
+                'url' => 'reports/sales-register',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Customer Wise',
+                'url' => 'reports/customer-wise-sales',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Outstanding Receivables',
+                'url' => 'reports/receivables',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+
+    // Vouchers Section
+    ['header' => 'VOUCHERS & PAYMENTS'],
+    [
+        'text' => 'Payment Vouchers',
+        'icon' => 'fas fa-money-bill-wave',
+        'icon_color' => 'green',
+        'submenu' => [
+            [
+                'text' => 'Payment',
+                'url' => 'vouchers/payment',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Receipt',
+                'url' => 'vouchers/receipt',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Contra',
+                'url' => 'vouchers/contra',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Journal',
+                'url' => 'vouchers/journal',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+
+    // Settings
+    ['header' => 'SETTINGS'],
+    [
+        'text' => 'Company Settings',
+        'url' => 'settings/company',
+        'icon' => 'fas fa-building',
+        'icon_color' => 'gray',
+    ],
+    [
+        'text' => 'User Management',
+        'icon' => 'fas fa-users-cog',
+        'icon_color' => 'dark',
+        'can' => 'manage-users',
+        'submenu' => [
+            [
+                'text' => 'Users',
+                'url' => 'users',
+                'icon' => 'far fa-circle',
+            ],
+            [
+                'text' => 'Roles & Permissions',
+                'url' => 'roles',
+                'icon' => 'far fa-circle',
+            ],
+        ],
+    ],
+    [
+        'text' => 'System Settings',
+        'url' => 'settings/system',
+        'icon' => 'fas fa-cog',
+        'icon_color' => 'secondary',
+        'can' => 'manage-settings',
+    ],
+    [
+        'text' => 'Backup & Restore',
+        'url' => 'settings/backup',
+        'icon' => 'fas fa-database',
+        'icon_color' => 'navy',
+        'can' => 'manage-settings',
+    ],
+],
+
 
     /*
     |--------------------------------------------------------------------------

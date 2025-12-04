@@ -1,0 +1,1505 @@
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\0001_01_01_000000_create_users_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+            $table->rememberToken();
+            $table->timestamps();
+        });
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
+        });
+
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('users');
+        Schema::dropIfExists('password_reset_tokens');
+        Schema::dropIfExists('sessions');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\0001_01_01_000001_create_cache_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('cache', function (Blueprint $table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration');
+        });
+
+        Schema::create('cache_locks', function (Blueprint $table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('cache');
+        Schema::dropIfExists('cache_locks');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\0001_01_01_000002_create_jobs_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('jobs', function (Blueprint $table) {
+            $table->id();
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+
+        Schema::create('job_batches', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('name');
+            $table->integer('total_jobs');
+            $table->integer('pending_jobs');
+            $table->integer('failed_jobs');
+            $table->longText('failed_job_ids');
+            $table->mediumText('options')->nullable();
+            $table->integer('cancelled_at')->nullable();
+            $table->integer('created_at');
+            $table->integer('finished_at')->nullable();
+        });
+
+        Schema::create('failed_jobs', function (Blueprint $table) {
+            $table->id();
+            $table->string('uuid')->unique();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('jobs');
+        Schema::dropIfExists('job_batches');
+        Schema::dropIfExists('failed_jobs');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_23_123653_create_accounts_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('accounts', function (Blueprint $table) {
+            $table->id();
+            $table->string('code', 50)->unique();
+            $table->string('name');
+            $table->enum('type', ['asset', 'liability', 'equity', 'income', 'expense']);
+            $table->text('description')->nullable();
+            $table->foreignId('parent_account_id')->nullable()->constrained('accounts')->onDelete('restrict');
+            $table->decimal('opening_balance', 15, 2)->default(0);
+            $table->date('opening_balance_date')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            
+            $table->index(['type', 'is_active']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('accounts');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_23_123659_create_transactions_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('transactions', function (Blueprint $table) {
+            $table->id();
+            $table->date('date');
+            $table->string('reference', 100)->nullable();
+            $table->string('description');
+            $table->text('notes')->nullable();
+            $table->enum('status', ['draft', 'posted', 'voided'])->default('posted');
+            $table->timestamps();
+            
+            $table->index(['date', 'status']);
+            $table->index('reference');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('transactions');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_23_123705_create_transaction_entries_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('transaction_entries', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('transaction_id')->constrained()->onDelete('cascade');
+            $table->foreignId('account_id')->constrained();
+            $table->decimal('amount', 15, 2);
+            $table->enum('type', ['debit', 'credit']);
+            $table->text('memo')->nullable();
+            $table->timestamps();
+            
+            $table->index(['transaction_id', 'account_id']);
+            $table->index(['account_id', 'type']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('transaction_entries');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_073317_create_units_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('units', function (Blueprint $table) {
+            $table->id();
+            $table->string('name', 50)->unique();
+            $table->string('symbol', 10)->unique();
+            $table->string('type', 20)->default('simple');
+            $table->boolean('is_base_unit')->default(false);
+            $table->text('description')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('units');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_075429_create_product_groups_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('product_groups', function (Blueprint $table) {
+            $table->id();
+            $table->string('name', 100)->unique();
+            $table->foreignId('parent_id')->nullable()->constrained('product_groups')->onDelete('restrict');
+            $table->text('description')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('product_groups');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_075431_create_products_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('products', function (Blueprint $table) {
+            $table->id();
+            $table->string('name', 200)->unique();
+            $table->string('code', 50)->unique()->nullable();
+            $table->foreignId('product_group_id')->nullable()->constrained('product_groups')->onDelete('restrict');
+            $table->foreignId('base_unit_id')->constrained('units')->onDelete('restrict');
+            $table->text('description')->nullable();
+            
+            // Opening Stock fields
+            $table->decimal('opening_quantity', 15, 3)->default(0);
+            $table->decimal('opening_rate', 15, 2)->nullable();
+            $table->date('opening_date')->nullable();
+            
+            // Inventory Accounts
+            $table->foreignId('inventory_account_id')->nullable()->constrained('accounts')->onDelete('restrict');
+            
+            // Product details
+            $table->decimal('minimum_stock', 15, 3)->default(0);
+            $table->decimal('maximum_stock', 15, 3)->default(0);
+            $table->decimal('reorder_level', 15, 3)->default(0);
+            
+            // Pricing
+            $table->decimal('purchase_price', 15, 2)->nullable();
+            $table->decimal('selling_price', 15, 2)->nullable();
+            $table->decimal('mrp', 15, 2)->nullable();
+            
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('products');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_075434_create_product_units_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('product_units', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('product_id')->constrained('products')->onDelete('cascade');
+            $table->foreignId('unit_id')->constrained('units')->onDelete('cascade');
+            $table->decimal('conversion_factor', 15, 4); // e.g., 1 box = 25 pieces
+            $table->boolean('is_default')->default(false);
+            $table->boolean('is_purchase_unit')->default(false);
+            $table->boolean('is_sales_unit')->default(false);
+            $table->timestamps();
+            
+            $table->unique(['product_id', 'unit_id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('product_units');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_083025_add_opening_stock_transaction_id_to_products_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('products', function (Blueprint $table) {
+            $table->foreignId('opening_stock_transaction_id')
+                  ->nullable()
+                  ->after('inventory_account_id')
+                  ->constrained('transactions')
+                  ->onDelete('set null');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('products', function (Blueprint $table) {
+            $table->dropForeign(['opening_stock_transaction_id']);
+            $table->dropColumn('opening_stock_transaction_id');
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_084535_add_soft_deletes_to_transaction_entries_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('transaction_entries', function (Blueprint $table) {
+            $table->softDeletes();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('transaction_entries', function (Blueprint $table) {
+            $table->dropSoftDeletes();
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_084639_add_soft_deletes_to_transactions_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('transactions', function (Blueprint $table) {
+            $table->softDeletes();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('transactions', function (Blueprint $table) {
+            $table->dropSoftDeletes();
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_093400_create_customer_groups_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+Schema::create('customer_groups', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->unique();
+            $table->text('description')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('customer_groups');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_093442_create_customers_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('customers', function (Blueprint $table) {
+            $table->id();
+            $table->string('customer_code')->unique();
+            $table->string('name')->unique();
+            $table->string('phone')->unique();
+            $table->string('email')->nullable();
+            $table->text('address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('state')->nullable();
+            $table->string('postal_code')->nullable();
+            $table->string('country')->default('Bangladesh');
+            
+            // Accounting Fields
+            $table->foreignId('customer_group_id')->nullable()->constrained('customer_groups')->nullOnDelete();
+            $table->foreignId('ledger_account_id')->constrained('accounts')->onDelete('cascade'); // Link to accounts table
+            $table->decimal('opening_balance', 15, 2)->default(0); // Positive = Outstanding, Negative = Advance
+            $table->enum('opening_balance_type', ['debit', 'credit'])->default('debit'); // debit = outstanding, credit = advance
+            $table->date('opening_balance_date')->nullable();
+            
+            // Credit Management
+            $table->decimal('credit_limit', 15, 2)->default(0);
+            $table->integer('credit_period_days')->default(0); // Default credit period
+            $table->date('current_due_date')->nullable();
+            $table->integer('total_extended_days')->default(0); // Track total extensions
+            $table->integer('extension_count')->default(0); // Number of times extended
+            
+            // Status
+            $table->boolean('is_active')->default(true);
+            $table->text('notes')->nullable();
+            
+            $table->timestamps();
+            $table->softDeletes();
+            
+            // Indexes for search
+            $table->index(['name', 'phone', 'city']);
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('customer');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_093804_create_customer_due_extensions_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+ Schema::create('customer_due_extensions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('customer_id')->constrained('customers')->onDelete('cascade');
+            $table->date('original_due_date');
+            $table->date('extended_due_date');
+            $table->integer('days_extended');
+            $table->text('reason')->nullable();
+            $table->foreignId('extended_by')->constrained('users')->onDelete('cascade');
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('customer_due_extensions');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_093923_create_customer_ledger_transactions_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('customer_ledger_transactions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('customer_id')->constrained('customers')->onDelete('cascade');
+            $table->foreignId('transaction_id')->nullable()->constrained('transactions')->onDelete('cascade');
+            $table->string('voucher_type'); // Sales, Receipt, Journal, etc.
+            $table->string('voucher_number');
+            $table->date('transaction_date');
+            $table->decimal('debit', 15, 2)->default(0); // Sales/Outstanding
+            $table->decimal('credit', 15, 2)->default(0); // Receipts/Payments
+            $table->decimal('balance', 15, 2)->default(0); // Running balance
+            $table->text('narration')->nullable();
+            $table->date('due_date')->nullable();
+            $table->boolean('is_settled')->default(false);
+            $table->timestamps();
+            
+            $table->index(['customer_id', 'transaction_date']);
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('customer_ledger_transactions');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_121815_create_vendors_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+Schema::create('vendors', function (Blueprint $table) {
+    $table->id();
+    $table->string('name')->unique();
+    $table->text('description')->nullable();
+    $table->foreignId('ledger_account_id')->nullable()->constrained('accounts')->onDelete('set null');
+    $table->timestamps();
+});
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('vendors');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_121930_create_purchase_orders_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+Schema::create('purchase_orders', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('vendor_id')->constrained()->cascadeOnDelete();
+    $table->string('order_number')->unique();
+    $table->enum('status', ['pending', 'received'])->default('pending');
+    $table->date('order_date');
+    $table->date('received_date')->nullable();
+    $table->text('notes')->nullable();
+    $table->decimal('total_amount', 18, 2)->default(0);
+    $table->timestamps();
+});
+
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('purchase_orders');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_122005_create_purchase_order_items_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+Schema::create('purchase_order_items', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('purchase_order_id')->constrained()->cascadeOnDelete();
+    $table->foreignId('product_id')->constrained()->cascadeOnDelete();
+    $table->decimal('quantity', 18, 2);
+    $table->decimal('rate', 18, 2);
+    $table->decimal('amount', 18, 2);
+    $table->timestamps();
+});
+
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('purchase_order_items');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_124809_create_trial_balance_cache_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+// Optional: create_trial_balance_cache_table.php
+Schema::create('trial_balance_cache', function (Blueprint $table) {
+    $table->id();
+    $table->date('as_of_date');
+    $table->json('balance_data');
+    $table->timestamps();
+});
+
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('trial_balance_cache');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_24_133448_add_stock_columns_to_products_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+Schema::table('products', function (Blueprint $table) {
+            // Add current_stock column if it doesn't exist
+            if (!Schema::hasColumn('products', 'current_stock')) {
+                $table->decimal('current_stock', 15, 4)->default(0)->after('base_unit_id');
+            }
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('products', function (Blueprint $table) {
+            $table->dropColumn([
+                'current_stock',
+            ]);
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_25_073133_add_opening_balance_to_vendors_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->decimal('opening_balance', 15, 2)->default(0)->after('description');
+            $table->enum('opening_balance_type', ['debit', 'credit'])->default('credit')->after('opening_balance');
+            $table->date('opening_balance_date')->nullable()->after('opening_balance_type');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->dropColumn(['opening_balance', 'opening_balance_type', 'opening_balance_date']);
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_11_25_074704_add_type_to_transactions_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('transactions', function (Blueprint $table) {
+            $table->string('type', 50)->default('general')->after('date');
+            $table->index('type');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('transactions', function (Blueprint $table) {
+            $table->dropIndex(['type']);
+            $table->dropColumn('type');
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_01_125933_create_payment_vouchers_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('payment_vouchers', function (Blueprint $table) {
+            $table->id();
+            $table->string('voucher_number')->unique();
+            $table->date('payment_date');
+            $table->string('payment_method')->default('cash'); // cash, bank, cheque, etc.
+            $table->decimal('amount', 15, 2);
+            $table->string('payee_type')->nullable(); // vendor, customer, employee, other
+            $table->unsignedBigInteger('payee_id')->nullable(); // ID of vendor/customer/etc
+            $table->foreignId('paid_from_account_id')->constrained('accounts')->onDelete('restrict');
+            $table->foreignId('paid_to_account_id')->constrained('accounts')->onDelete('restrict');
+            $table->foreignId('transaction_id')->nullable()->constrained('transactions')->onDelete('set null');
+            $table->string('cheque_number')->nullable();
+            $table->date('cheque_date')->nullable();
+            $table->string('bank_name')->nullable();
+            $table->text('description')->nullable();
+            $table->text('notes')->nullable();
+            $table->string('status')->default('posted'); // draft, posted, cancelled
+            $table->timestamps();
+            $table->softDeletes();
+            
+            // Indexes
+            $table->index('payment_date');
+            $table->index('payee_type');
+            $table->index('payee_id');
+            $table->index('status');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('payment_vouchers');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_01_131151_add_is_active_to_vendors_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->boolean('is_active')->default(true)->after('opening_balance_date');
+            
+            // Add index for better query performance
+            $table->index('is_active');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->dropIndex(['is_active']);
+            $table->dropColumn('is_active');
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_01_134426_add_soft_deletes_to_vendors_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->softDeletes();
+            
+            // Add index for better query performance
+            $table->index('deleted_at');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->dropIndex(['deleted_at']);
+            $table->dropSoftDeletes();
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_01_140456_create_receipt_vouchers_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('receipt_vouchers', function (Blueprint $table) {
+            $table->id();
+            $table->string('voucher_number')->unique();
+            $table->date('receipt_date');
+            $table->string('payment_method')->default('cash'); // cash, bank, cheque, mobile_banking
+            $table->decimal('amount', 15, 2);
+            
+            // Customer information
+            $table->foreignId('customer_id')->constrained('customers')->onDelete('restrict');
+            
+            // Accounting accounts
+            $table->foreignId('received_in_account_id')->constrained('accounts')->onDelete('restrict'); // Cash/Bank Account (Debit)
+            $table->foreignId('customer_account_id')->constrained('accounts')->onDelete('restrict'); // Customer Ledger (Credit)
+            
+            // Transaction linkage
+            $table->foreignId('transaction_id')->nullable()->constrained('transactions')->onDelete('set null');
+            
+            // Cheque details
+            $table->string('cheque_number')->nullable();
+            $table->date('cheque_date')->nullable();
+            $table->string('bank_name')->nullable();
+            
+            $table->text('description')->nullable();
+            $table->text('notes')->nullable();
+            $table->string('status')->default('posted'); // draft, posted, cancelled
+            
+            $table->timestamps();
+            $table->softDeletes();
+            
+            // Indexes
+            $table->index('receipt_date');
+            $table->index('customer_id');
+            $table->index('status');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('receipt_vouchers');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_02_101808_create_contra_vouchers_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('contra_vouchers', function (Blueprint $table) {
+            $table->id();
+            $table->string('voucher_number')->unique();
+            $table->date('contra_date');
+            $table->decimal('amount', 15, 2);
+            
+            // From Account (Source)
+            $table->foreignId('from_account_id')
+                ->constrained('accounts')
+                ->onDelete('restrict');
+            
+            // To Account (Destination)
+            $table->foreignId('to_account_id')
+                ->constrained('accounts')
+                ->onDelete('restrict');
+            
+            // Transaction reference
+            $table->foreignId('transaction_id')
+                ->nullable()
+                ->constrained('transactions')
+                ->onDelete('set null');
+            
+            // Transfer method details
+            $table->enum('transfer_method', ['cash', 'bank_transfer', 'cheque', 'online'])
+                ->default('cash');
+            $table->string('cheque_number')->nullable();
+            $table->date('cheque_date')->nullable();
+            $table->string('bank_name')->nullable();
+            $table->string('reference_number')->nullable(); // For online/bank transfers
+            
+            $table->string('description', 500);
+            $table->text('notes')->nullable();
+            
+            $table->enum('status', ['draft', 'posted', 'cancelled'])
+                ->default('draft');
+            
+            $table->foreignId('created_by')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+            
+            $table->timestamps();
+            $table->softDeletes();
+            
+            $table->index('voucher_number');
+            $table->index('contra_date');
+            $table->index('status');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('contra_vouchers');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_02_104942_create_journal_vouchers_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('journal_vouchers', function (Blueprint $table) {
+            $table->id();
+            $table->string('voucher_number')->unique();
+            $table->date('journal_date');
+            
+            // Transaction reference
+            $table->foreignId('transaction_id')
+                ->nullable()
+                ->constrained('transactions')
+                ->onDelete('set null');
+            
+            $table->string('description', 500);
+            $table->text('notes')->nullable();
+            
+            $table->enum('status', ['draft', 'posted', 'cancelled'])
+                ->default('draft');
+            
+            $table->foreignId('created_by')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+            
+            $table->timestamps();
+            $table->softDeletes();
+            
+            $table->index('voucher_number');
+            $table->index('journal_date');
+            $table->index('status');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('journal_vouchers');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_02_113055_create_company_settings_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('company_settings', function (Blueprint $table) {
+            $table->id();
+            
+            // Company Information
+            $table->string('company_name');
+            $table->string('company_name_bangla')->nullable();
+            $table->string('tagline')->nullable();
+            $table->string('logo')->nullable(); // Logo file path
+            $table->string('favicon')->nullable(); // Favicon file path
+            
+            // Contact Information
+            $table->string('email')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('mobile')->nullable();
+            $table->string('fax')->nullable();
+            $table->string('website')->nullable();
+            
+            // Address Information
+            $table->text('address');
+            $table->string('city')->nullable();
+            $table->string('state')->nullable();
+            $table->string('postal_code')->nullable();
+            $table->string('country')->default('Bangladesh');
+            
+            // Business Information
+            $table->string('bin')->nullable(); // Business Identification Number
+            $table->string('tin')->nullable(); // Tax Identification Number
+            $table->string('trade_license')->nullable();
+            $table->string('vat_registration')->nullable();
+            
+            // Bank Information (Multiple banks support)
+            $table->json('bank_accounts')->nullable();
+            
+            // Document Settings
+            $table->text('terms_and_conditions')->nullable();
+            $table->text('invoice_footer')->nullable();
+            $table->text('quotation_footer')->nullable();
+            $table->text('receipt_footer')->nullable();
+            
+            // Fiscal Year
+            $table->date('fiscal_year_start')->nullable();
+            $table->date('fiscal_year_end')->nullable();
+            
+            // Currency Settings
+            $table->string('currency_code')->default('BDT');
+            $table->string('currency_symbol')->default('৳');
+            $table->string('currency_position')->default('left'); // left or right
+            
+            // Print Settings
+            $table->boolean('show_logo_in_print')->default(true);
+            $table->boolean('show_company_info_in_print')->default(true);
+            $table->string('print_paper_size')->default('A4'); // A4, Letter, etc.
+            
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('company_settings');
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_02_141208_add_transaction_id_to_purchase_orders_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('purchase_orders', function (Blueprint $table) {
+            $table->foreignId('transaction_id')
+                ->nullable()
+                ->after('total_amount')
+                ->constrained('transactions')
+                ->onDelete('set null');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('purchase_orders', function (Blueprint $table) {
+            $table->dropForeign(['transaction_id']);
+            $table->dropColumn('transaction_id');
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_02_142556_add_purchase_account_id_to_purchase_orders_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('purchase_orders', function (Blueprint $table) {
+            $table->foreignId('purchase_account_id')
+                ->nullable()
+                ->after('vendor_id')
+                ->constrained('accounts')
+                ->onDelete('restrict');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('purchase_orders', function (Blueprint $table) {
+            $table->dropForeign(['purchase_account_id']);
+            $table->dropColumn('purchase_account_id');
+        });
+    }
+};
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\database\migrations\2025_12_02_144544_create_product_movements_table.php
+================================================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+public function up(): void
+{
+    Schema::create('product_movements', function (Blueprint $table) {
+        $table->id();
+        $table->foreignId('product_id')->constrained('products')->onDelete('restrict');
+        $table->enum('type', ['purchase', 'sale', 'adjustment', 'opening_stock', 'return']);
+        $table->string('reference_type')->nullable();
+        $table->unsignedBigInteger('reference_id')->nullable();
+        $table->decimal('quantity', 15, 4);
+        $table->decimal('rate', 15, 2)->nullable();
+        $table->decimal('stock_before', 15, 4)->default(0); // ← ADD DEFAULT
+        $table->decimal('stock_after', 15, 4)->default(0);  // ← ADD DEFAULT
+        $table->date('movement_date');
+        $table->text('notes')->nullable();
+        $table->foreignId('created_by')->nullable()->constrained('users')->onDelete('set null');
+        $table->timestamps();
+        
+        // Indexes
+        $table->index(['product_id', 'movement_date']);
+        $table->index(['reference_type', 'reference_id']);
+        $table->index('type');
+    });
+}
+
+
+    public function down(): void
+    {
+        Schema::dropIfExists('product_movements');
+    }
+};
+
+
+

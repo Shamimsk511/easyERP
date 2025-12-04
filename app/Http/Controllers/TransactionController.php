@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Transaction;
 use App\Models\Account;
-use App\Http\Requests\StoreTransactionRequest;
-use App\Http\Requests\UpdateTransactionRequest;
+use App\Models\Customer;
+use App\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Http\Requests\StoreTransactionRequest;
+use App\Http\Requests\UpdateTransactionRequest;
 
 class TransactionController extends Controller
 {
@@ -203,4 +204,15 @@ public function destroy(Transaction $transaction)
             ->route('transactions.show', $transaction)
             ->with('success', 'Transaction voided successfully.');
     }
+
+    public function createForCustomer(Customer $customer)
+{
+    $accounts = Account::where('is_active', true)
+        ->orderBy('code')
+        ->get();
+    
+    $preselectedAccountId = $customer->ledger_account_id;
+    
+    return view('transactions.create', compact('accounts', 'preselectedAccountId', 'customer'));
+}
 }

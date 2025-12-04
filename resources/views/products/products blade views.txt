@@ -1,0 +1,1720 @@
+================================================================================
+FILE: I:\Laravel Projects\gnucash\resources\views\products\create.blade.php
+================================================================================
+
+@extends('adminlte::page')
+
+@section('title', 'Create Product')
+
+@section('content_header')
+    <h1>Create New Product</h1>
+@stop
+
+@section('content')
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Product Information</h3>
+        </div>
+        
+        <form action="{{ route('products.store') }}" method="POST" id="productForm">
+            @csrf
+            
+            <div class="card-body">
+                {{-- Basic Information --}}
+                <h5 class="text-primary"><i class="fas fa-info-circle"></i> Basic Information</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="name">Product Name <span class="text-danger">*</span></label>
+                            <input type="text" 
+                                   class="form-control @error('name') is-invalid @enderror" 
+                                   id="name" 
+                                   name="name" 
+                                   placeholder="Enter unique product name"
+                                   value="{{ old('name') }}"
+                                   required>
+                            @error('name')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="code">Product Code</label>
+                            <input type="text" 
+                                   class="form-control @error('code') is-invalid @enderror" 
+                                   id="code" 
+                                   name="code" 
+                                   placeholder="Optional SKU/Code"
+                                   value="{{ old('code') }}">
+                            @error('code')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="product_group_id">Product Group</label>
+                            <div class="input-group">
+                                <select class="form-control select2 @error('product_group_id') is-invalid @enderror" 
+                                        id="product_group_id" 
+                                        name="product_group_id"
+                                        style="width: calc(100% - 40px);">
+                                    <option value="">-- No Group --</option>
+                                    @foreach($productGroups as $group)
+                                        <option value="{{ $group->id }}" {{ old('product_group_id') == $group->id ? 'selected' : '' }}>
+                                            {{ $group->full_path }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#groupModal" title="Add New Group">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            @error('product_group_id')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="base_unit_id">Base Unit <span class="text-danger">*</span></label>
+                            <select class="form-control @error('base_unit_id') is-invalid @enderror" 
+                                    id="base_unit_id" 
+                                    name="base_unit_id"
+                                    required>
+                                <option value="">-- Select Base Unit --</option>
+                                @foreach($baseUnits as $unit)
+                                    <option value="{{ $unit->id }}" {{ old('base_unit_id') == $unit->id ? 'selected' : '' }}>
+                                        {{ $unit->name }} ({{ $unit->symbol }})
+                                    </option>
+                                @endforeach
+                            </select>
+                            @error('base_unit_id')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                            <small class="form-text text-muted">This is the smallest measurement unit</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea class="form-control @error('description') is-invalid @enderror" 
+                              id="description" 
+                              name="description" 
+                              rows="2">{{ old('description') }}</textarea>
+                    @error('description')
+                        <span class="invalid-feedback">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                {{-- Alternative Units Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-ruler-combined"></i> Alternative Units (Compound Units)</h5>
+                <hr>
+                <div id="alternative-units-section">
+                    <table class="table table-bordered" id="alt-units-table">
+                        <thead>
+                            <tr>
+                                <th width="40%">Alternative Unit</th>
+                                <th width="25%">Conversion Factor</th>
+                                <th width="15%">Purchase</th>
+                                <th width="15%">Sales</th>
+                                <th width="5%">
+                                    <button type="button" class="btn btn-sm btn-success" id="add-alt-unit">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="alt-units-body">
+                            {{-- Dynamic rows will be added here --}}
+                        </tbody>
+                    </table>
+                    <small class="form-text text-muted">
+                        Example: If base unit is "pieces" and 1 box = 25 pieces, select "box" and enter 25 as conversion factor
+                    </small>
+                </div>
+
+                {{-- Opening Stock Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-boxes"></i> Opening Stock</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="opening_quantity">Opening Quantity</label>
+                            <input type="number" 
+                                   class="form-control @error('opening_quantity') is-invalid @enderror" 
+                                   id="opening_quantity" 
+                                   name="opening_quantity" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('opening_quantity', 0) }}">
+                            @error('opening_quantity')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="opening_rate">Opening Rate (per base unit)</label>
+                            <input type="number" 
+                                   class="form-control @error('opening_rate') is-invalid @enderror" 
+                                   id="opening_rate" 
+                                   name="opening_rate" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('opening_rate') }}">
+                            @error('opening_rate')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="opening_date">Opening Date</label>
+                            <input type="date" 
+                                   class="form-control @error('opening_date') is-invalid @enderror" 
+                                   id="opening_date" 
+                                   name="opening_date" 
+                                   value="{{ old('opening_date', now()->toDateString()) }}">
+                            @error('opening_date')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="inventory_account_id">Inventory Account</label>
+                    <select class="form-control select2 @error('inventory_account_id') is-invalid @enderror" 
+                            id="inventory_account_id" 
+                            name="inventory_account_id">
+                        <option value="">-- Select Account --</option>
+                        @foreach($inventoryAccounts as $account)
+                            <option value="{{ $account->id }}" {{ old('inventory_account_id') == $account->id ? 'selected' : '' }}>
+                                {{ $account->code }} - {{ $account->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                    @error('inventory_account_id')
+                        <span class="invalid-feedback">{{ $message }}</span>
+                    @enderror
+                    <small class="form-text text-muted">Required if opening stock is entered</small>
+                </div>
+
+                {{-- Pricing Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-money-bill-wave"></i> Pricing</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="purchase_price">Purchase Price</label>
+                            <input type="number" 
+                                   class="form-control @error('purchase_price') is-invalid @enderror" 
+                                   id="purchase_price" 
+                                   name="purchase_price" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('purchase_price') }}">
+                            @error('purchase_price')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="selling_price">Selling Price</label>
+                            <input type="number" 
+                                   class="form-control @error('selling_price') is-invalid @enderror" 
+                                   id="selling_price" 
+                                   name="selling_price" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('selling_price') }}">
+                            @error('selling_price')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="mrp">MRP</label>
+                            <input type="number" 
+                                   class="form-control @error('mrp') is-invalid @enderror" 
+                                   id="mrp" 
+                                   name="mrp" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('mrp') }}">
+                            @error('mrp')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Stock Levels Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-chart-line"></i> Stock Levels</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="minimum_stock">Minimum Stock</label>
+                            <input type="number" 
+                                   class="form-control @error('minimum_stock') is-invalid @enderror" 
+                                   id="minimum_stock" 
+                                   name="minimum_stock" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('minimum_stock', 0) }}">
+                            @error('minimum_stock')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="reorder_level">Reorder Level</label>
+                            <input type="number" 
+                                   class="form-control @error('reorder_level') is-invalid @enderror" 
+                                   id="reorder_level" 
+                                   name="reorder_level" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('reorder_level', 0) }}">
+                            @error('reorder_level')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="maximum_stock">Maximum Stock</label>
+                            <input type="number" 
+                                   class="form-control @error('maximum_stock') is-invalid @enderror" 
+                                   id="maximum_stock" 
+                                   name="maximum_stock" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('maximum_stock', 0) }}">
+                            @error('maximum_stock')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-check mt-3">
+                    <input type="checkbox" 
+                           class="form-check-input" 
+                           id="is_active" 
+                           name="is_active" 
+                           value="1"
+                           {{ old('is_active', true) ? 'checked' : '' }}>
+                    <label class="form-check-label" for="is_active">Active</label>
+                </div>
+            </div>
+
+            <div class="card-footer">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Product
+                </button>
+                <a href="{{ route('products.index') }}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {{-- Modal for Quick Group Creation --}}
+    <div class="modal fade" id="groupModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-success">
+                    <h5 class="modal-title">Add New Product Group</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form id="groupForm">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="modal_group_name">Group Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="modal_group_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="modal_parent_id">Parent Group</label>
+                            <select class="form-control" id="modal_parent_id">
+                                <option value="">-- No Parent --</option>
+                                @foreach($productGroups as $group)
+                                    <option value="{{ $group->id }}">{{ $group->full_path }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="modal_is_active" checked>
+                            <label class="form-check-label" for="modal_is_active">Active</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-success">Save Group</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+@stop
+
+@section('js')
+<script>
+$(document).ready(function() {
+    // Initialize Select2
+    $('.select2').select2({
+        theme: 'bootstrap4',
+        allowClear: true
+    });
+
+    // Alternative Units Management
+    let altUnitIndex = 0;
+    
+    $('#add-alt-unit').click(function() {
+        addAltUnitRow();
+    });
+
+    function addAltUnitRow() {
+        const row = `
+            <tr class="alt-unit-row">
+                <td>
+                    <select class="form-control" name="alt_unit_id[]">
+                        <option value="">-- Select Unit --</option>
+                        @foreach($units as $unit)
+                            <option value="{{ $unit->id }}">{{ $unit->name }} ({{ $unit->symbol }})</option>
+                        @endforeach
+                    </select>
+                </td>
+                <td>
+                    <input type="number" class="form-control" name="conversion_factor[]" 
+                           step="0.0001" min="0.0001" placeholder="e.g., 25">
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" name="is_purchase_unit[]" value="1">
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" name="is_sales_unit[]" value="1">
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-danger remove-alt-unit">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+        
+        $('#alt-units-body').append(row);
+        altUnitIndex++;
+    }
+
+    // Remove alternative unit row
+    $(document).on('click', '.remove-alt-unit', function() {
+        $(this).closest('tr').remove();
+    });
+
+    // Quick Group Creation via Modal
+    $('#groupForm').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            name: $('#modal_group_name').val(),
+            parent_id: $('#modal_parent_id').val() || null,
+            is_active: $('#modal_is_active').is(':checked') ? 1 : 0,
+            _token: "{{ csrf_token() }}"
+        };
+
+        $.ajax({
+            url: "{{ route('product-groups.store') }}",
+            type: 'POST',
+            data: formData,
+            success: function(response) {
+                if (response.success) {
+                    // Add new group to select dropdown
+                    const newOption = new Option(response.data.name, response.data.id, true, true);
+                    $('#product_group_id').append(newOption).trigger('change');
+                    
+                    // Close modal and reset form
+                    $('#groupModal').modal('hide');
+                    $('#groupForm')[0].reset();
+                    
+                    // Show success message
+                    Swal.fire('Success!', response.message, 'success');
+                }
+            },
+            error: function(xhr) {
+                Swal.fire('Error!', xhr.responseJSON.message || 'Failed to create group', 'error');
+            }
+        });
+    });
+
+    // Reset modal form when closed
+    $('#groupModal').on('hidden.bs.modal', function() {
+        $('#groupForm')[0].reset();
+    });
+});
+</script>
+@stop
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\resources\views\products\edit.blade.php
+================================================================================
+
+@extends('adminlte::page')
+
+@section('title', 'Edit Product')
+
+@section('content_header')
+    <h1>Edit Product</h1>
+@stop
+
+@section('content')
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Product Information</h3>
+        </div>
+        
+        <form action="{{ route('products.update', $product->id) }}" method="POST" id="productForm">
+            @csrf
+            @method('PUT')
+            
+            <div class="card-body">
+                {{-- Basic Information --}}
+                <h5 class="text-primary"><i class="fas fa-info-circle"></i> Basic Information</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="name">Product Name <span class="text-danger">*</span></label>
+                            <input type="text" 
+                                   class="form-control @error('name') is-invalid @enderror" 
+                                   id="name" 
+                                   name="name" 
+                                   value="{{ old('name', $product->name) }}"
+                                   required>
+                            @error('name')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="code">Product Code</label>
+                            <input type="text" 
+                                   class="form-control @error('code') is-invalid @enderror" 
+                                   id="code" 
+                                   name="code" 
+                                   value="{{ old('code', $product->code) }}">
+                            @error('code')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="product_group_id">Product Group</label>
+                            <div class="input-group">
+                                <select class="form-control select2 @error('product_group_id') is-invalid @enderror" 
+                                        id="product_group_id" 
+                                        name="product_group_id"
+                                        style="width: calc(100% - 40px);">
+                                    <option value="">-- No Group --</option>
+                                    @foreach($productGroups as $group)
+                                        <option value="{{ $group->id }}" {{ old('product_group_id', $product->product_group_id) == $group->id ? 'selected' : '' }}>
+                                            {{ $group->full_path }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-success" data-toggle="modal" data-target="#groupModal">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            @error('product_group_id')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label for="base_unit_id">Base Unit <span class="text-danger">*</span></label>
+                            <select class="form-control @error('base_unit_id') is-invalid @enderror" 
+                                    id="base_unit_id" 
+                                    name="base_unit_id"
+                                    required>
+                                <option value="">-- Select Base Unit --</option>
+                                @foreach($baseUnits as $unit)
+                                    <option value="{{ $unit->id }}" {{ old('base_unit_id', $product->base_unit_id) == $unit->id ? 'selected' : '' }}>
+                                        {{ $unit->name }} ({{ $unit->symbol }})
+                                    </option>
+                                @endforeach
+                            </select>
+                            @error('base_unit_id')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                            <small class="form-text text-muted">This is the smallest measurement unit</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea class="form-control @error('description') is-invalid @enderror" 
+                              id="description" 
+                              name="description" 
+                              rows="2">{{ old('description', $product->description) }}</textarea>
+                    @error('description')
+                        <span class="invalid-feedback">{{ $message }}</span>
+                    @enderror
+                </div>
+
+                {{-- Alternative Units Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-ruler-combined"></i> Alternative Units (Compound Units)</h5>
+                <hr>
+                <div id="alternative-units-section">
+                    <table class="table table-bordered" id="alt-units-table">
+                        <thead>
+                            <tr>
+                                <th width="40%">Alternative Unit</th>
+                                <th width="25%">Conversion Factor</th>
+                                <th width="15%">Purchase</th>
+                                <th width="15%">Sales</th>
+                                <th width="5%">
+                                    <button type="button" class="btn btn-sm btn-success" id="add-alt-unit">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="alt-units-body">
+                            @foreach($product->alternativeUnits as $altUnit)
+                                <tr class="alt-unit-row">
+                                    <td>
+                                        <select class="form-control" name="alt_unit_id[]">
+                                            <option value="">-- Select Unit --</option>
+                                            @foreach($units as $unit)
+                                                <option value="{{ $unit->id }}" {{ $altUnit->id == $unit->id ? 'selected' : '' }}>
+                                                    {{ $unit->name }} ({{ $unit->symbol }})
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" class="form-control" name="conversion_factor[]" 
+                                               step="0.0001" min="0.0001" 
+                                               value="{{ $altUnit->pivot->conversion_factor }}">
+                                    </td>
+                                    <td class="text-center">
+                                        <input type="checkbox" name="is_purchase_unit[]" value="1" 
+                                               {{ $altUnit->pivot->is_purchase_unit ? 'checked' : '' }}>
+                                    </td>
+                                    <td class="text-center">
+                                        <input type="checkbox" name="is_sales_unit[]" value="1" 
+                                               {{ $altUnit->pivot->is_sales_unit ? 'checked' : '' }}>
+                                    </td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-danger remove-alt-unit">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                    <small class="form-text text-muted">
+                        Example: If base unit is "pieces" and 1 box = 25 pieces, select "box" and enter 25 as conversion factor
+                    </small>
+                </div>
+
+                {{-- Opening Stock Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-boxes"></i> Opening Stock</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="opening_quantity">Opening Quantity</label>
+                            <input type="number" 
+                                   class="form-control @error('opening_quantity') is-invalid @enderror" 
+                                   id="opening_quantity" 
+                                   name="opening_quantity" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('opening_quantity', $product->opening_quantity) }}">
+                            @error('opening_quantity')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="opening_rate">Opening Rate (per base unit)</label>
+                            <input type="number" 
+                                   class="form-control @error('opening_rate') is-invalid @enderror" 
+                                   id="opening_rate" 
+                                   name="opening_rate" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('opening_rate', $product->opening_rate) }}">
+                            @error('opening_rate')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="opening_date">Opening Date</label>
+                            <input type="date" 
+                                   class="form-control @error('opening_date') is-invalid @enderror" 
+                                   id="opening_date" 
+                                   name="opening_date" 
+                                   value="{{ old('opening_date', $product->opening_date?->format('Y-m-d')) }}">
+                            @error('opening_date')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="inventory_account_id">Inventory Account</label>
+                    <select class="form-control select2 @error('inventory_account_id') is-invalid @enderror" 
+                            id="inventory_account_id" 
+                            name="inventory_account_id">
+                        <option value="">-- Select Account --</option>
+                        @foreach($inventoryAccounts as $account)
+                            <option value="{{ $account->id }}" {{ old('inventory_account_id', $product->inventory_account_id) == $account->id ? 'selected' : '' }}>
+                                {{ $account->code }} - {{ $account->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                    @error('inventory_account_id')
+                        <span class="invalid-feedback">{{ $message }}</span>
+                    @enderror
+                    <small class="form-text text-muted">Required if opening stock is entered</small>
+                </div>
+
+                {{-- Pricing Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-money-bill-wave"></i> Pricing</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="purchase_price">Purchase Price</label>
+                            <input type="number" 
+                                   class="form-control @error('purchase_price') is-invalid @enderror" 
+                                   id="purchase_price" 
+                                   name="purchase_price" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('purchase_price', $product->purchase_price) }}">
+                            @error('purchase_price')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="selling_price">Selling Price</label>
+                            <input type="number" 
+                                   class="form-control @error('selling_price') is-invalid @enderror" 
+                                   id="selling_price" 
+                                   name="selling_price" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('selling_price', $product->selling_price) }}">
+                            @error('selling_price')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="mrp">MRP</label>
+                            <input type="number" 
+                                   class="form-control @error('mrp') is-invalid @enderror" 
+                                   id="mrp" 
+                                   name="mrp" 
+                                   step="0.01"
+                                   min="0"
+                                   value="{{ old('mrp', $product->mrp) }}">
+                            @error('mrp')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Stock Levels Section --}}
+                <h5 class="text-primary mt-4"><i class="fas fa-chart-line"></i> Stock Levels</h5>
+                <hr>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="minimum_stock">Minimum Stock</label>
+                            <input type="number" 
+                                   class="form-control @error('minimum_stock') is-invalid @enderror" 
+                                   id="minimum_stock" 
+                                   name="minimum_stock" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('minimum_stock', $product->minimum_stock) }}">
+                            @error('minimum_stock')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="reorder_level">Reorder Level</label>
+                            <input type="number" 
+                                   class="form-control @error('reorder_level') is-invalid @enderror" 
+                                   id="reorder_level" 
+                                   name="reorder_level" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('reorder_level', $product->reorder_level) }}">
+                            @error('reorder_level')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="maximum_stock">Maximum Stock</label>
+                            <input type="number" 
+                                   class="form-control @error('maximum_stock') is-invalid @enderror" 
+                                   id="maximum_stock" 
+                                   name="maximum_stock" 
+                                   step="0.001"
+                                   min="0"
+                                   value="{{ old('maximum_stock', $product->maximum_stock) }}">
+                            @error('maximum_stock')
+                                <span class="invalid-feedback">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-check mt-3">
+                    <input type="checkbox" 
+                           class="form-check-input" 
+                           id="is_active" 
+                           name="is_active" 
+                           value="1"
+                           {{ old('is_active', $product->is_active) ? 'checked' : '' }}>
+                    <label class="form-check-label" for="is_active">Active</label>
+                </div>
+            </div>
+
+            <div class="card-footer">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Update Product
+                </button>
+                <a href="{{ route('products.index') }}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {{-- Modal for Quick Group Creation --}}
+    <div class="modal fade" id="groupModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-success">
+                    <h5 class="modal-title">Add New Product Group</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form id="groupForm">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="modal_group_name">Group Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="modal_group_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="modal_parent_id">Parent Group</label>
+                            <select class="form-control" id="modal_parent_id">
+                                <option value="">-- No Parent --</option>
+                                @foreach($productGroups as $group)
+                                    <option value="{{ $group->id }}">{{ $group->full_path }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="modal_is_active" checked>
+                            <label class="form-check-label" for="modal_is_active">Active</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-success">Save Group</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+@stop
+
+@section('js')
+<script>
+$(document).ready(function() {
+    // Initialize Select2
+    $('.select2').select2({
+        theme: 'bootstrap4',
+        allowClear: true
+    });
+
+    // Alternative Units Management
+    $('#add-alt-unit').click(function() {
+        addAltUnitRow();
+    });
+
+    function addAltUnitRow() {
+        const row = `
+            <tr class="alt-unit-row">
+                <td>
+                    <select class="form-control" name="alt_unit_id[]">
+                        <option value="">-- Select Unit --</option>
+                        @foreach($units as $unit)
+                            <option value="{{ $unit->id }}">{{ $unit->name }} ({{ $unit->symbol }})</option>
+                        @endforeach
+                    </select>
+                </td>
+                <td>
+                    <input type="number" class="form-control" name="conversion_factor[]" 
+                           step="0.0001" min="0.0001" placeholder="e.g., 25">
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" name="is_purchase_unit[]" value="1">
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" name="is_sales_unit[]" value="1">
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-danger remove-alt-unit">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+        
+        $('#alt-units-body').append(row);
+    }
+
+    // Remove alternative unit row
+    $(document).on('click', '.remove-alt-unit', function() {
+        $(this).closest('tr').remove();
+    });
+
+    // Quick Group Creation via Modal
+    $('#groupForm').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            name: $('#modal_group_name').val(),
+            parent_id: $('#modal_parent_id').val() || null,
+            is_active: $('#modal_is_active').is(':checked') ? 1 : 0,
+            _token: "{{ csrf_token() }}"
+        };
+
+        $.ajax({
+            url: "{{ route('product-groups.store') }}",
+            type: 'POST',
+            data: formData,
+            success: function(response) {
+                if (response.success) {
+                    const newOption = new Option(response.data.name, response.data.id, true, true);
+                    $('#product_group_id').append(newOption).trigger('change');
+                    
+                    $('#groupModal').modal('hide');
+                    $('#groupForm')[0].reset();
+                    
+                    Swal.fire('Success!', response.message, 'success');
+                }
+            },
+            error: function(xhr) {
+                Swal.fire('Error!', xhr.responseJSON.message || 'Failed to create group', 'error');
+            }
+        });
+    });
+
+    // Reset modal form when closed
+    $('#groupModal').on('hidden.bs.modal', function() {
+        $('#groupForm')[0].reset();
+    });
+});
+</script>
+@stop
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\resources\views\products\index.blade.php
+================================================================================
+
+@extends('adminlte::page')
+
+@section('title', 'Products')
+
+@section('content_header')
+    <h1>Products</h1>
+@stop
+
+@section('content')
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">All Products</h3>
+            <div class="card-tools">
+                <a href="{{ route('products.create') }}" class="btn btn-success btn-sm">
+                    <i class="fas fa-plus"></i> Add New Product
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            {{-- Filter Section --}}
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="filter_group">Filter by Product Group</label>
+                        <select id="filter_group" class="form-control select2" style="width: 100%;">
+                            <option value="">-- All Groups --</option>
+                            @foreach($productGroups as $group)
+                                <option value="{{ $group->id }}">{{ $group->full_path }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-group">
+                        <label for="filter_status">Filter by Status</label>
+                        <select id="filter_status" class="form-control">
+                            <option value="">-- All Status --</option>
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button type="button" id="reset_filters" class="btn btn-secondary btn-block">
+                            <i class="fas fa-redo"></i> Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <table id="products-table" class="table table-bordered table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Code</th>
+                        <th>Group</th>
+                        <th>Unit</th>
+                        <th>Current Stock</th>
+                        <th>Rate</th>
+                        <th>Stock Value</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+            </table>
+        </div>
+    </div>
+@stop
+
+@section('css')
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/@ttskch/select2-bootstrap4-theme@1.5.2/dist/select2-bootstrap4.min.css" rel="stylesheet" />
+@stop
+
+@section('js')
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+    $(document).ready(function() {
+        // Initialize Select2
+        $('.select2').select2({
+            theme: 'bootstrap4',
+            placeholder: '-- All Groups --',
+            allowClear: true
+        });
+
+        // Initialize DataTable
+        var table = $('#products-table').DataTable({
+            processing: true,
+            serverSide: true,
+            ajax: {
+                url: "{{ route('products.index') }}",
+                data: function (d) {
+                    d.product_group_id = $('#filter_group').val();
+                    d.status = $('#filter_status').val();
+                }
+            },
+            columns: [
+                {data: 'id', name: 'id', width: '50px'},
+                {data: 'name', name: 'name'},
+                {data: 'code', name: 'code'},
+                {data: 'group_name', name: 'productGroup.name'},
+                {data: 'unit_name', name: 'baseUnit.symbol', width: '80px'},
+                {data: 'current_stock', name: 'opening_quantity', orderable: false},
+                {data: 'rate_info', name: 'purchase_price'},
+                {data: 'stock_value', name: 'stock_value', orderable: false, searchable: false},
+                {data: 'is_active', name: 'is_active', orderable: false, searchable: false, width: '80px'},
+                {data: 'action', name: 'action', orderable: false, searchable: false, width: '120px'}
+            ],
+            order: [[0, 'desc']]
+        });
+
+        // Reload table when filter changes
+        $('#filter_group, #filter_status').change(function() {
+            table.draw();
+        });
+
+        // Reset filters
+        $('#reset_filters').click(function() {
+            $('#filter_group').val('').trigger('change');
+            $('#filter_status').val('');
+            table.draw();
+        });
+
+        // Delete Product with SweetAlert
+        $(document).on('click', '.delete-btn', function() {
+            var id = $(this).data('id');
+            
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "You won't be able to revert this!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Yes, delete it!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $.ajax({
+                        url: "{{ url('products') }}/" + id,
+                        type: 'DELETE',
+                        data: {
+                            _token: "{{ csrf_token() }}"
+                        },
+                        success: function(response) {
+                            Swal.fire('Deleted!', response.message, 'success');
+                            table.ajax.reload();
+                        },
+                        error: function(xhr) {
+                            Swal.fire('Error!', xhr.responseJSON.message, 'error');
+                        }
+                    });
+                }
+            });
+        });
+    });
+</script>
+@stop
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\resources\views\products\show.blade.php
+================================================================================
+
+@extends('adminlte::page')
+
+@section('title', 'View Product')
+
+@section('content_header')
+    <h1>Product Details</h1>
+@stop
+
+@section('content')
+    <div class="row">
+        <div class="col-md-8">
+            {{-- Basic Information Card --}}
+            <div class="card">
+                <div class="card-header bg-primary">
+                    <h3 class="card-title"><i class="fas fa-info-circle"></i> Basic Information</h3>
+                    <div class="card-tools">
+                        <a href="{{ route('products.edit', $product->id) }}" class="btn btn-sm btn-warning">
+                            <i class="fas fa-edit"></i> Edit
+                        </a>
+                        <a href="{{ route('products.index') }}" class="btn btn-sm btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered">
+                        <tbody>
+                            <tr>
+                                <th style="width: 200px;">Product Name</th>
+                                <td><strong>{{ $product->name }}</strong></td>
+                            </tr>
+                            <tr>
+                                <th>Product Code</th>
+                                <td>
+                                    @if($product->code)
+                                        de>{{ $product->code }}</code>
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Product Group</th>
+                                <td>
+                                    @if($product->productGroup)
+                                        <span class="badge badge-info">{{ $product->productGroup->full_path }}</span>
+                                    @else
+                                        <span class="text-muted">No Group</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Base Unit</th>
+                                <td>
+                                    <span class="badge badge-primary">{{ $product->baseUnit->name }} ({{ $product->baseUnit->symbol }})</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Current Stock</th>
+                                <td>
+                                    @php
+                                        $currentStock = $product->current_stock ?? 0;
+                                        $badgeClass = 'badge-success';
+                                        if ($currentStock <= $product->minimum_stock) {
+                                            $badgeClass = 'badge-danger';
+                                        } elseif ($currentStock <= $product->reorder_level) {
+                                            $badgeClass = 'badge-warning';
+                                        }
+                                    @endphp
+                                    <span class="badge {{ $badgeClass }}" style="font-size: 1.1em;">
+                                        <i class="fas fa-boxes"></i> {{ number_format($currentStock, 2) }} {{ $product->baseUnit->symbol }}
+                                    </span>
+                                    
+                                    @if($product->purchase_price)
+                                        <br><small class="text-muted">
+                                            Value: ৳ {{ number_format($currentStock * $product->purchase_price, 2) }}
+                                        </small>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Description</th>
+                                <td>{{ $product->description ?: 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Status</th>
+                                <td>
+                                    @if($product->is_active)
+                                        <span class="badge badge-success">Active</span>
+                                    @else
+                                        <span class="badge badge-danger">Inactive</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {{-- Product Movement History Card --}}
+            <div class="card">
+                <div class="card-header bg-dark">
+                    <h3 class="card-title"><i class="fas fa-exchange-alt"></i> Stock Movement History</h3>
+                    <div class="card-tools">
+                        @if($movements->isNotEmpty())
+                            <button type="button" class="btn btn-sm btn-light" data-toggle="modal" data-target="#movementsModal">
+                                <i class="fas fa-list"></i> View All Movements
+                            </button>
+                        @endif
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if($movements->isNotEmpty())
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped mb-0">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Reference</th>
+                                        <th class="text-right">Quantity</th>
+                                        <th class="text-right">Rate</th>
+                                        <th class="text-right">Stock After</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($movements->take(5) as $movement)
+                                        <tr>
+                                            <td>
+                                                <small>{{ $movement->movement_date->format('d M Y') }}</small><br>
+                                                <small class="text-muted">{{ $movement->created_at->format('h:i A') }}</small>
+                                            </td>
+                                            <td>
+                                                @php
+                                                    $badges = [
+                                                        'purchase' => 'badge-success',
+                                                        'sale' => 'badge-danger',
+                                                        'adjustment' => 'badge-warning',
+                                                        'opening_stock' => 'badge-info',
+                                                        'return' => 'badge-primary',
+                                                    ];
+                                                    $icons = [
+                                                        'purchase' => 'fa-cart-plus',
+                                                        'sale' => 'fa-shopping-cart',
+                                                        'adjustment' => 'fa-adjust',
+                                                        'opening_stock' => 'fa-box-open',
+                                                        'return' => 'fa-undo',
+                                                    ];
+                                                @endphp
+                                                <span class="badge {{ $badges[$movement->type] ?? 'badge-secondary' }}">
+                                                    <i class="fas {{ $icons[$movement->type] ?? 'fa-question' }}"></i>
+                                                    {{ ucfirst(str_replace('_', ' ', $movement->type)) }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                @if($movement->reference_type && $movement->reference_id)
+                                                    @php
+                                                        $refClass = class_basename($movement->reference_type);
+                                                    @endphp
+                                                    <small class="text-muted">{{ $refClass }}</small><br>
+                                                    de>#{{ $movement->reference_id }}</code>
+                                                @else
+                                                    <span class="text-muted">-</span>
+                                                @endif
+                                            </td>
+                                            <td class="text-right">
+                                                <strong class="{{ $movement->type == 'purchase' ? 'text-success' : ($movement->type == 'sale' ? 'text-danger' : '') }}">
+                                                    {{ $movement->type == 'purchase' ? '+' : ($movement->type == 'sale' ? '-' : '') }}{{ number_format($movement->quantity, 2) }}
+                                                </strong>
+                                                <small class="text-muted">{{ $product->baseUnit->symbol }}</small>
+                                            </td>
+                                            <td class="text-right">
+                                                @if($movement->rate)
+                                                    <small>৳ {{ number_format($movement->rate, 2) }}</small>
+                                                @else
+                                                    <small class="text-muted">-</small>
+                                                @endif
+                                            </td>
+                                            <td class="text-right">
+                                                <strong>{{ number_format($movement->stock_after, 2) }}</strong>
+                                            </td>
+                                            <td>
+                                                <small>{{ Str::limit($movement->notes, 30) ?: '-' }}</small>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @else
+                        <div class="p-4 text-center text-muted">
+                            <i class="fas fa-inbox fa-3x mb-3"></i>
+                            <p>No stock movements recorded yet.</p>
+                        </div>
+                    @endif
+                </div>
+                @if($movements->count() > 5)
+                    <div class="card-footer text-center">
+                        <button type="button" class="btn btn-sm btn-primary" data-toggle="modal" data-target="#movementsModal">
+                            <i class="fas fa-list"></i> View All {{ $movements->count() }} Movements
+                        </button>
+                    </div>
+                @elseif($movements->isNotEmpty())
+                    <div class="card-footer text-muted">
+                        <small>
+                            <i class="fas fa-info-circle"></i> 
+                            Total Movements: <strong>{{ $movements->count() }}</strong>
+                        </small>
+                    </div>
+                @endif
+            </div>
+
+            {{-- Alternative Units Card --}}
+            @if($product->alternativeUnits->isNotEmpty())
+            <div class="card">
+                <div class="card-header bg-info">
+                    <h3 class="card-title"><i class="fas fa-ruler-combined"></i> Alternative Units</h3>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                            <tr>
+                                <th>Unit</th>
+                                <th>Conversion Factor</th>
+                                <th>Purchase</th>
+                                <th>Sales</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($product->alternativeUnits as $altUnit)
+                                <tr>
+                                    <td><strong>{{ $altUnit->name }}</strong> ({{ $altUnit->symbol }})</td>
+                                    <td>
+                                        1 {{ $altUnit->symbol }} = {{ number_format($altUnit->pivot->conversion_factor, 4) }} {{ $product->baseUnit->symbol }}
+                                    </td>
+                                    <td class="text-center">
+                                        @if($altUnit->pivot->is_purchase_unit)
+                                            <i class="fas fa-check text-success"></i>
+                                        @else
+                                            <i class="fas fa-times text-danger"></i>
+                                        @endif
+                                    </td>
+                                    <td class="text-center">
+                                        @if($altUnit->pivot->is_sales_unit)
+                                            <i class="fas fa-check text-success"></i>
+                                        @else
+                                            <i class="fas fa-times text-danger"></i>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            @endif
+
+            {{-- Pricing Card --}}
+            <div class="card">
+                <div class="card-header bg-success">
+                    <h3 class="card-title"><i class="fas fa-money-bill-wave"></i> Pricing Information</h3>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered">
+                        <tbody>
+                            <tr>
+                                <th style="width: 200px;">Purchase Price</th>
+                                <td>
+                                    @if($product->purchase_price)
+                                        ৳ {{ number_format($product->purchase_price, 2) }} per {{ $product->baseUnit->symbol }}
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Selling Price</th>
+                                <td>
+                                    @if($product->selling_price)
+                                        ৳ {{ number_format($product->selling_price, 2) }} per {{ $product->baseUnit->symbol }}
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>MRP</th>
+                                <td>
+                                    @if($product->mrp)
+                                        ৳ {{ number_format($product->mrp, 2) }} per {{ $product->baseUnit->symbol }}
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            @if($product->selling_price && $product->purchase_price)
+                            <tr>
+                                <th>Profit Margin</th>
+                                <td>
+                                    <strong class="text-success">
+                                        ৳ {{ number_format($product->selling_price - $product->purchase_price, 2) }}
+                                        ({{ number_format((($product->selling_price - $product->purchase_price) / $product->purchase_price) * 100, 2) }}%)
+                                    </strong>
+                                </td>
+                            </tr>
+                            @endif
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            {{-- Stock Summary Card --}}
+            <div class="card card-widget widget-user-2">
+                <div class="widget-user-header bg-gradient-primary">
+                    <h3 class="widget-user-username">Current Stock</h3>
+                    <h5 class="widget-user-desc">{{ $product->name }}</h5>
+                </div>
+                <div class="card-footer p-0">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <span class="nav-link">
+                                Current Quantity 
+                                <span class="float-right badge bg-success">
+                                    {{ number_format($product->current_stock ?? 0, 2) }} {{ $product->baseUnit->symbol }}
+                                </span>
+                            </span>
+                        </li>
+                        @if($product->purchase_price)
+                        <li class="nav-item">
+                            <span class="nav-link">
+                                Stock Value 
+                                <span class="float-right badge bg-info">
+                                    ৳ {{ number_format(($product->current_stock ?? 0) * $product->purchase_price, 2) }}
+                                </span>
+                            </span>
+                        </li>
+                        @endif
+                        <li class="nav-item">
+                            <span class="nav-link">
+                                Opening Stock 
+                                <span class="float-right badge bg-secondary">
+                                    {{ number_format($product->opening_quantity, 2) }} {{ $product->baseUnit->symbol }}
+                                </span>
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            {{-- Opening Stock Card --}}
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <h3 class="card-title"><i class="fas fa-boxes"></i> Opening Stock</h3>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th>Quantity</th>
+                                <td>
+                                    @if($product->opening_quantity > 0)
+                                        <strong>{{ number_format($product->opening_quantity, 3) }} {{ $product->baseUnit->symbol }}</strong>
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Rate</th>
+                                <td>
+                                    @if($product->opening_rate)
+                                        ৳ {{ number_format($product->opening_rate, 2) }}
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Date</th>
+                                <td>
+                                    @if($product->opening_date)
+                                        {{ $product->opening_date->format('d M Y') }}
+                                    @else
+                                        <span class="text-muted">Not Set</span>
+                                    @endif
+                                </td>
+                            </tr>
+                            <tr class="bg-light">
+                                <th>Total Value</th>
+                                <td>
+                                    @if($product->opening_stock_value > 0)
+                                        <strong class="text-success">৳ {{ number_format($product->opening_stock_value, 2) }}</strong>
+                                    @else
+                                        <span class="text-muted">৳ 0.00</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    @if($product->inventoryAccount)
+                        <div class="alert alert-info mb-0 mt-2">
+                            <small>
+                                <strong>Account:</strong><br>
+                                {{ $product->inventoryAccount->code }} - {{ $product->inventoryAccount->name }}
+                            </small>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- Stock Levels Card --}}
+            <div class="card">
+                <div class="card-header bg-secondary">
+                    <h3 class="card-title"><i class="fas fa-chart-line"></i> Stock Levels</h3>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th>Minimum Stock</th>
+                                <td>{{ number_format($product->minimum_stock, 3) }} {{ $product->baseUnit->symbol }}</td>
+                            </tr>
+                            <tr>
+                                <th>Reorder Level</th>
+                                <td>{{ number_format($product->reorder_level, 3) }} {{ $product->baseUnit->symbol }}</td>
+                            </tr>
+                            <tr>
+                                <th>Maximum Stock</th>
+                                <td>{{ number_format($product->maximum_stock, 3) }} {{ $product->baseUnit->symbol }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {{-- System Info Card --}}
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-clock"></i> System Information</h3>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <th>Created</th>
+                                <td>{{ $product->created_at->format('d M Y, h:i A') }}</td>
+                            </tr>
+                            <tr>
+                                <th>Last Updated</th>
+                                <td>{{ $product->updated_at->format('d M Y, h:i A') }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Movement Modal with DataTables --}}
+    <div class="modal fade" id="movementsModal" tabindex="-1" role="dialog" aria-labelledby="movementsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-dark">
+                    <h5 class="modal-title" id="movementsModalLabel">
+                        <i class="fas fa-exchange-alt"></i> All Stock Movements - {{ $product->name }}
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <table id="movements-table" class="table table-bordered table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Reference</th>
+                                <th>Quantity</th>
+                                <th>Rate</th>
+                                <th>Stock Before</th>
+                                <th>Stock After</th>
+                                <th>Notes</th>
+                                <th>By</th>
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+@stop
+
+@section('js')
+<script>
+$(document).ready(function() {
+    // Initialize DataTable when modal opens
+    $('#movementsModal').on('shown.bs.modal', function () {
+        if (!$.fn.DataTable.isDataTable('#movements-table')) {
+            $('#movements-table').DataTable({
+                processing: true,
+                serverSide: true,
+                ajax: '{{ route('products.movements.datatable', $product->id) }}',
+                columns: [
+                    { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false, width: '40px' },
+                    { data: 'date_formatted', name: 'movement_date', width: '100px' },
+                    { data: 'type_badge', name: 'type', width: '120px' },
+                    { data: 'reference', name: 'reference_type', orderable: false, width: '100px' },
+                    { data: 'quantity_formatted', name: 'quantity', width: '100px' },
+                    { data: 'rate_formatted', name: 'rate', width: '80px' },
+                    { data: 'stock_before_formatted', name: 'stock_before', width: '80px' },
+                    { data: 'stock_after_formatted', name: 'stock_after', width: '80px' },
+                    { data: 'notes', name: 'notes' },
+                    { data: 'created_by_name', name: 'createdBy.name', width: '100px' },
+                ],
+                order: [[1, 'desc']], // Order by date descending
+                pageLength: 25,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+                language: {
+                    processing: '<i class="fas fa-spinner fa-spin fa-3x"></i><br>Loading movements...',
+                    emptyTable: "No movements found",
+                    zeroRecords: "No matching movements found"
+                },
+                responsive: true,
+                autoWidth: false
+            });
+        }
+    });
+    
+    // Destroy DataTable when modal closes to allow re-initialization
+    $('#movementsModal').on('hidden.bs.modal', function () {
+        if ($.fn.DataTable.isDataTable('#movements-table')) {
+            $('#movements-table').DataTable().destroy();
+        }
+    });
+});
+</script>
+@stop
+
+@section('css')
+<style>
+    .table-sm th {
+        width: 40%;
+    }
+    .modal-xl {
+        max-width: 95%;
+    }
+</style>
+@stop
+
+
+

@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Product;
-use App\Models\ProductGroup;
 use App\Models\Unit;
 use App\Models\Account;
+use App\Models\Product;
+use App\Models\ProductGroup;
 use Illuminate\Http\Request;
+use App\Models\ProductMovement;
 use Illuminate\Validation\Rule;
-use Yajra\DataTables\Facades\DataTables;
 use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\Facades\DataTables;
 
 class ProductController extends Controller
 {
@@ -210,12 +211,20 @@ public function store(Request $request)
     /**
      * Display the specified product
      */
-    public function show(Product $product)
-    {
-        $product->load(['productGroup', 'baseUnit', 'inventoryAccount', 'alternativeUnits']);
-        
-        return view('products.show', compact('product'));
-    }
+public function show(Product $product)
+{
+    $product->load('productGroup', 'baseUnit', 'inventoryAccount', 'alternativeUnits');
+    
+    // Load product movements with relationships
+    $movements = $product->movements()
+        ->with(['createdBy', 'product.baseUnit'])
+        ->orderBy('movement_date', 'desc')
+        ->orderBy('created_at', 'desc')
+        ->get();
+    
+    return view('products.show', compact('product', 'movements'));
+}
+
 
     /**
      * Show the form for editing the specified product
@@ -377,4 +386,122 @@ public function destroy(Product $product)
         // Debit: Inventory Account
         // Credit: Owner's Capital (Account ID 22 from your seeder)
     }
+    /**
+ * Quick add product via AJAX (for purchase order form)
+ */
+public function quickAdd(Request $request)
+{
+    $validated = $request->validate([
+        'name' => 'required|string|max:200|unique:products,name',
+        'base_unit' => 'required|string|max:50',
+    ]);
+
+    DB::beginTransaction();
+    
+    try {
+        // Find or create the unit
+        $unit = Unit::firstOrCreate(
+            ['symbol' => strtoupper($validated['base_unit'])],
+            [
+                'name' => $validated['base_unit'],
+                'symbol' => strtoupper($validated['base_unit']),
+                'is_base_unit' => true,
+                'is_active' => true,
+            ]
+        );
+
+        // Create product with minimal data
+        $product = Product::create([
+            'name' => $validated['name'],
+            'base_unit_id' => $unit->id,
+            'is_active' => true,
+        ]);
+
+        DB::commit();
+
+return response()->json([
+    'success' => true,
+    'id' => $product->id,
+    'name' => $product->name,
+    'unit' => $unit->symbol,
+    'message' => 'Product created successfully!',
+]);
+
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Error creating product: ' . $e->getMessage(),
+        ], 500);
+    }
+}
+public function getMovementsDatatable(Request $request, Product $product)
+{
+    if ($request->ajax()) {
+        $movements = ProductMovement::where('product_id', $product->id)
+            ->with(['createdBy', 'product.baseUnit'])
+            ->select('product_movements.*');
+        
+        return DataTables::of($movements)
+            ->addIndexColumn()
+            ->addColumn('date_formatted', function ($row) {
+                return '<strong>' . $row->movement_date->format('d M Y') . '</strong><br>' .
+                       '<small class="text-muted">' . $row->created_at->format('h:i A') . '</small>';
+            })
+            ->addColumn('type_badge', function ($row) {
+                $badges = [
+                    'purchase' => 'badge-success',
+                    'sale' => 'badge-danger',
+                    'adjustment' => 'badge-warning',
+                    'opening_stock' => 'badge-info',
+                    'return' => 'badge-primary',
+                ];
+                $icons = [
+                    'purchase' => 'fa-cart-plus',
+                    'sale' => 'fa-shopping-cart',
+                    'adjustment' => 'fa-adjust',
+                    'opening_stock' => 'fa-box-open',
+                    'return' => 'fa-undo',
+                ];
+                
+                return '<span class="badge ' . ($badges[$row->type] ?? 'badge-secondary') . '">' .
+                       '<i class="fas ' . ($icons[$row->type] ?? 'fa-question') . '"></i> ' .
+                       ucfirst(str_replace('_', ' ', $row->type)) .
+                       '</span>';
+            })
+            ->addColumn('reference', function ($row) {
+                if ($row->reference_type && $row->reference_id) {
+                    $refClass = class_basename($row->reference_type);
+                    return '<small class="text-muted">' . $refClass . '</small><br>' .
+                           'de>#' . $row->reference_id . '</code>';
+                }
+                return '<span class="text-muted">-</span>';
+            })
+            ->addColumn('quantity_formatted', function ($row) {
+                $class = $row->type == 'purchase' ? 'text-success' : ($row->type == 'sale' ? 'text-danger' : '');
+                $sign = $row->type == 'purchase' ? '+' : ($row->type == 'sale' ? '-' : '');
+                
+                return '<strong class="' . $class . '">' .
+                       $sign . number_format($row->quantity, 2) .
+                       '</strong> ' .
+                       '<small class="text-muted">' . $row->product->baseUnit->symbol . '</small>';
+            })
+            ->addColumn('rate_formatted', function ($row) {
+                return $row->rate ? '৳ ' . number_format($row->rate, 2) : '<span class="text-muted">-</span>';
+            })
+            ->addColumn('stock_before_formatted', function ($row) {
+                return number_format($row->stock_before, 2);
+            })
+            ->addColumn('stock_after_formatted', function ($row) {
+                return '<strong>' . number_format($row->stock_after, 2) . '</strong>';
+            })
+            ->addColumn('created_by_name', function ($row) {
+                return $row->createdBy ? $row->createdBy->name : '<small class="text-muted">System</small>';
+            })
+            ->rawColumns(['date_formatted', 'type_badge', 'reference', 'quantity_formatted', 'rate_formatted', 'stock_after_formatted', 'created_by_name'])
+            ->make(true);
+    }
+}
 }

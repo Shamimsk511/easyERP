@@ -1,0 +1,285 @@
+<?php
+
+namespace App\Observers;
+
+use App\Models\Transaction;
+use App\Models\Customer;
+use App\Models\CustomerLedgerTransaction;
+use Illuminate\Support\Facades\Log;
+
+class TransactionObserver
+{
+    /**
+     * Sync transaction with customer ledger - call this manually after creating entries
+     * 
+     * Usage: \App\Observers\TransactionObserver::syncToCustomerLedger($transaction);
+     */
+    public static function syncToCustomerLedger(Transaction $transaction): void
+    {
+        Log::info('TransactionObserver: Manual sync started', [
+            'transaction_id' => $transaction->id,
+            'reference' => $transaction->reference,
+            'status' => $transaction->status,
+            'description' => $transaction->description
+        ]);
+
+        // Only sync posted transactions
+        if ($transaction->status !== 'posted') {
+            Log::info('TransactionObserver: Skipping non-posted transaction', [
+                'transaction_id' => $transaction->id,
+                'status' => $transaction->status
+            ]);
+            return;
+        }
+
+        // Delete old customer ledger entries for this transaction (in case of update)
+        $deletedCount = CustomerLedgerTransaction::where('transaction_id', $transaction->id)->delete();
+        
+        if ($deletedCount > 0) {
+            Log::info('TransactionObserver: Deleted old customer ledger entries', [
+                'transaction_id' => $transaction->id,
+                'deleted_count' => $deletedCount
+            ]);
+        }
+
+        // Refresh to get latest entries
+        $transaction->refresh();
+
+        // Get all transaction entries with their accounts
+        $entries = $transaction->entries()->with('account')->get();
+        
+        Log::info('TransactionObserver: Processing entries', [
+            'count' => $entries->count(),
+            'transaction_id' => $transaction->id
+        ]);
+
+        if ($entries->isEmpty()) {
+            Log::warning('TransactionObserver: No entries found for transaction', [
+                'transaction_id' => $transaction->id,
+                'reference' => $transaction->reference
+            ]);
+            return;
+        }
+
+        $customersProcessed = 0;
+
+        foreach ($entries as $entry) {
+            $account = $entry->account;
+
+            if (!$account) {
+                Log::warning('TransactionObserver: Entry has no account', [
+                    'entry_id' => $entry->id,
+                    'transaction_id' => $transaction->id
+                ]);
+                continue;
+            }
+
+            // Check if this account belongs to a customer
+            $customer = Customer::where('ledger_account_id', $account->id)->first();
+
+            if ($customer) {
+                Log::info('TransactionObserver: Found customer for account', [
+                    'customer_id' => $customer->id,
+                    'customer_name' => $customer->name,
+                    'customer_code' => $customer->customer_code,
+                    'account_id' => $account->id,
+                    'account_name' => $account->name,
+                    'entry_type' => $entry->type,
+                    'entry_amount' => $entry->amount
+                ]);
+                
+                self::createCustomerLedgerEntry($customer, $transaction, $entry);
+                $customersProcessed++;
+            } else {
+                Log::debug('TransactionObserver: No customer found for account', [
+                    'account_id' => $account->id,
+                    'account_name' => $account->name,
+                    'account_code' => $account->code
+                ]);
+            }
+        }
+
+        Log::info('TransactionObserver: Sync completed', [
+            'transaction_id' => $transaction->id,
+            'customers_processed' => $customersProcessed
+        ]);
+    }
+
+    /**
+     * Create customer ledger entry
+     */
+    private static function createCustomerLedgerEntry($customer, $transaction, $entry): void
+    {
+        try {
+            // Calculate running balance
+            $lastBalance = CustomerLedgerTransaction::where('customer_id', $customer->id)
+                ->orderBy('transaction_date', 'desc')
+                ->orderBy('id', 'desc')
+                ->value('balance') ?? 0;
+
+            $debit = $entry->type === 'debit' ? $entry->amount : 0;
+            $credit = $entry->type === 'credit' ? $entry->amount : 0;
+
+            // Running balance: previous balance + debit - credit
+            $newBalance = $lastBalance + $debit - $credit;
+
+            // Determine voucher type
+            $voucherType = self::determineVoucherType($transaction);
+
+            // Calculate due date if this is a debit (sale/outstanding)
+            $dueDate = null;
+            if ($debit > 0 && $customer->credit_period_days > 0) {
+                $dueDate = $transaction->date->copy()->addDays($customer->credit_period_days);
+            }
+
+            // Create customer ledger transaction
+            $ledgerEntry = CustomerLedgerTransaction::create([
+                'customer_id' => $customer->id,
+                'transaction_id' => $transaction->id,
+                'voucher_type' => $voucherType,
+                'voucher_number' => $transaction->reference ?? 'TXN-' . $transaction->id,
+                'transaction_date' => $transaction->date,
+                'debit' => $debit,
+                'credit' => $credit,
+                'balance' => $newBalance,
+                'narration' => $transaction->description ?? '',
+                'due_date' => $dueDate,
+                'is_settled' => abs($newBalance) < 0.01, // Consider settled if balance is near zero
+            ]);
+
+            Log::info('TransactionObserver: CustomerLedgerTransaction created successfully', [
+                'ledger_entry_id' => $ledgerEntry->id,
+                'customer_id' => $customer->id,
+                'customer_name' => $customer->name,
+                'transaction_id' => $transaction->id,
+                'voucher_type' => $voucherType,
+                'voucher_number' => $ledgerEntry->voucher_number,
+                'debit' => number_format($debit, 2),
+                'credit' => number_format($credit, 2),
+                'previous_balance' => number_format($lastBalance, 2),
+                'new_balance' => number_format($newBalance, 2),
+                'due_date' => $dueDate ? $dueDate->format('Y-m-d') : null
+            ]);
+
+            // Update customer's current due date if this creates/adds to outstanding
+            if ($debit > 0 && $dueDate) {
+                $customer->update(['current_due_date' => $dueDate]);
+                
+                Log::info('TransactionObserver: Updated customer due date', [
+                    'customer_id' => $customer->id,
+                    'new_due_date' => $dueDate->format('Y-m-d')
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('TransactionObserver: Failed to create customer ledger entry', [
+                'customer_id' => $customer->id,
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            throw $e; // Re-throw to rollback transaction
+        }
+    }
+
+    /**
+     * Determine voucher type from transaction
+     */
+    private static function determineVoucherType($transaction): string
+    {
+        $description = strtolower($transaction->description ?? '');
+        $reference = strtolower($transaction->reference ?? '');
+        $type = strtolower($transaction->type ?? '');
+
+        // Check transaction type field first
+        if ($type === 'receipt' || str_contains($description, 'receipt') || str_contains($reference, 'rcv')) {
+            return 'Receipt';
+        }
+        
+        if ($type === 'payment' || str_contains($description, 'payment')) {
+            return 'Payment';
+        }
+
+        // Check for sales invoice
+        if (str_contains($description, 'sale') || str_contains($description, 'invoice') || str_contains($reference, 'inv')) {
+            return 'Sales Invoice';
+        }
+        
+        // Check for opening balance
+        if (str_contains($description, 'opening balance') || str_contains($reference, 'ob-')) {
+            return 'Opening Balance';
+        }
+        
+        // Check for sales return
+        if (str_contains($description, 'return') || str_contains($description, 'credit note')) {
+            return 'Sales Return';
+        }
+
+        // Check for journal entry
+        if ($type === 'journal' || str_contains($description, 'journal')) {
+            return 'Journal Entry';
+        }
+
+        // Default
+        return 'Journal Entry';
+    }
+
+    /**
+     * Delete customer ledger entries for a transaction
+     * 
+     * Usage: \App\Observers\TransactionObserver::deleteCustomerLedger($transaction);
+     */
+    public static function deleteCustomerLedger(Transaction $transaction): void
+    {
+        Log::info('TransactionObserver: Deleting customer ledger entries', [
+            'transaction_id' => $transaction->id
+        ]);
+
+        $deletedCount = CustomerLedgerTransaction::where('transaction_id', $transaction->id)->delete();
+        
+        Log::info('TransactionObserver: Customer ledger entries deleted', [
+            'transaction_id' => $transaction->id,
+            'deleted_count' => $deletedCount
+        ]);
+    }
+
+    /**
+     * Recalculate all balances for a customer
+     * Useful for fixing balance issues
+     * 
+     * Usage: \App\Observers\TransactionObserver::recalculateCustomerBalances($customer);
+     */
+    public static function recalculateCustomerBalances(Customer $customer): void
+    {
+        Log::info('TransactionObserver: Recalculating customer balances', [
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->name
+        ]);
+
+        // Get all ledger transactions ordered by date
+        $ledgerTransactions = CustomerLedgerTransaction::where('customer_id', $customer->id)
+            ->orderBy('transaction_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        // Start with opening balance
+        $runningBalance = $customer->opening_balance_type === 'debit' 
+            ? $customer->opening_balance 
+            : -$customer->opening_balance;
+
+        foreach ($ledgerTransactions as $ledgerTxn) {
+            // Calculate new running balance
+            $runningBalance = $runningBalance + $ledgerTxn->debit - $ledgerTxn->credit;
+            
+            // Update balance
+            $ledgerTxn->update(['balance' => $runningBalance]);
+        }
+
+        Log::info('TransactionObserver: Customer balances recalculated', [
+            'customer_id' => $customer->id,
+            'transactions_updated' => $ledgerTransactions->count(),
+            'final_balance' => number_format($runningBalance, 2)
+        ]);
+    }
+}

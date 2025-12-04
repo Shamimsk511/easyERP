@@ -47,61 +47,66 @@ class AccountController extends Controller
         return view('accounts.index', compact('accounts', 'viewType'));
     }
 
-    private function getDataTableData(Request $request)
-    {
-        $query = Account::with('parentAccount')
-            ->select('accounts.*');
-        
-        if ($request->filled('type')) {
-            $query->where('type', $request->type);
-        }
-        
-        if ($request->filled('is_active')) {
-            $query->where('is_active', $request->is_active);
-        }
-        
-        return DataTables::eloquent($query)
-            ->addColumn('type_badge', function($account) {
-                $colors = [
-                    'asset' => 'primary',
-                    'liability' => 'danger',
-                    'equity' => 'info',
-                    'income' => 'success',
-                    'expense' => 'warning'
-                ];
-                $color = $colors[$account->type] ?? 'secondary';
-                return '<span class="badge badge-' . $color . '">' . ucfirst($account->type) . '</span>';
-            })
-            ->addColumn('parent_name', function($account) {
-                return $account->parentAccount ? $account->parentAccount->name : '-';
-            })
-            ->addColumn('balance_formatted', function($account) {
-                $class = $account->current_balance < 0 ? 'text-danger' : '';
-                return '<span class="' . $class . '">' . number_format($account->current_balance, 2) . '</span>';
-            })
-            ->addColumn('status_badge', function($account) {
-                return $account->is_active 
-                    ? '<span class="badge badge-success">Active</span>'
-                    : '<span class="badge badge-secondary">Inactive</span>';
-            })
-            ->addColumn('actions', function ($account) {
-                $viewBtn = '<a href="' . route('accounts.show', $account) . '" class="btn btn-info btn-sm" title="View">
-                                <i class="fas fa-eye"></i>
-                            </a>';
-                
-                $editBtn = '<a href="' . route('accounts.edit', $account) . '" class="btn btn-warning btn-sm" title="Edit">
-                                <i class="fas fa-edit"></i>
-                            </a>';
-                
-                $deleteBtn = '<button type="button" class="btn btn-danger btn-sm delete-account" data-id="' . $account->id . '" title="Delete">
-                                <i class="fas fa-trash"></i>
-                            </button>';
-                
-                return $viewBtn . ' ' . $editBtn . ' ' . $deleteBtn;
-            })
-            ->rawColumns(['type_badge', 'balance_formatted', 'status_badge', 'actions'])
-            ->make(true);
+private function getDataTableData(Request $request)
+{
+    $query = Account::with('parentAccount')
+        ->select('accounts.*');
+    
+    // Apply custom filters
+    if ($request->filled('type')) {
+        $query->where('type', $request->type);
     }
+    
+    if ($request->filled('is_active')) {
+        $query->where('is_active', $request->is_active);
+    }
+    
+    return DataTables::eloquent($query)
+        ->filter(function ($query) use ($request) {
+            // Handle DataTables search parameter
+            if ($request->has('search') && !empty($request->search['value'])) {
+                $search = $request->search['value'];
+                $query->where(function($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('code', 'like', "%{$search}%")
+                      ->orWhere('description', 'like', "%{$search}%");
+                });
+            }
+        })
+        ->addColumn('type_badge', function($account) {
+            $colors = [
+                'asset' => 'primary',
+                'liability' => 'danger',
+                'equity' => 'info',
+                'income' => 'success',
+                'expense' => 'warning'
+            ];
+            $color = $colors[$account->type] ?? 'secondary';
+            return '<span class="badge badge-' . $color . '">' . ucfirst($account->type) . '</span>';
+        })
+        ->addColumn('parent_name', function($account) {
+            return $account->parentAccount ? $account->parentAccount->name : '-';
+        })
+        ->addColumn('balance_formatted', function($account) {
+            $class = $account->current_balance < 0 ? 'text-danger' : '';
+            return '<span class="' . $class . '">' . number_format($account->current_balance, 2) . '</span>';
+        })
+        ->addColumn('status_badge', function($account) {
+            return $account->is_active 
+                ? '<span class="badge badge-success">Active</span>' 
+                : '<span class="badge badge-secondary">Inactive</span>';
+        })
+        ->addColumn('actions', function ($account) {
+            $viewBtn = '<a href="' . route('accounts.show', $account) . '" class="btn btn-info btn-sm" title="View"><i class="fas fa-eye"></i></a>';
+            $editBtn = '<a href="' . route('accounts.edit', $account) . '" class="btn btn-warning btn-sm" title="Edit"><i class="fas fa-edit"></i></a>';
+            $deleteBtn = '<button type="button" class="btn btn-danger btn-sm delete-account" data-id="' . $account->id . '" title="Delete"><i class="fas fa-trash"></i></button>';
+            
+            return $viewBtn . ' ' . $editBtn . ' ' . $deleteBtn;
+        })
+        ->rawColumns(['type_badge', 'balance_formatted', 'status_badge', 'actions'])
+        ->make(true);
+}
+
 
     private function getTreeData()
     {

@@ -22,6 +22,7 @@ class Product extends Model
         'opening_date',
         'inventory_account_id',
         'opening_stock_transaction_id',
+        'current_stock',
         'minimum_stock',
         'maximum_stock',
         'reorder_level',
@@ -34,6 +35,7 @@ class Product extends Model
     protected $casts = [
         'opening_quantity' => 'decimal:3',
         'opening_rate' => 'decimal:2',
+         'current_stock' => 'decimal:4',
         'opening_date' => 'date',
         'minimum_stock' => 'decimal:3',
         'maximum_stock' => 'decimal:3',
@@ -77,7 +79,10 @@ class Product extends Model
     {
         return $this->belongsTo(ProductGroup::class);
     }
-
+public function movements()
+{
+    return $this->hasMany(ProductMovement::class)->orderBy('movement_date', 'desc');
+}
     public function baseUnit()
     {
         return $this->belongsTo(Unit::class, 'base_unit_id');
@@ -119,13 +124,6 @@ class Product extends Model
     /**
      * Get current stock quantity (opening + purchases - sales)
      */
-    public function getCurrentStockAttribute()
-    {
-        // TODO: When you build inventory transactions (purchase/sales), calculate:
-        // Opening Stock + Total Purchases - Total Sales - Total Returns
-        // For now, return opening quantity
-        return $this->opening_quantity;
-    }
 
     /**
      * Get current stock value

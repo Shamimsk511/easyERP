@@ -104,4 +104,5 @@ class Account extends Model
     {
         return $query->where('name', 'LIKE', '%Inventory%')->where('type', 'asset');
     }
+
 }
