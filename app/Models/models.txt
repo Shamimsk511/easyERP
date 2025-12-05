@@ -366,6 +366,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Customer extends Model
 {
@@ -413,17 +415,30 @@ class Customer extends Model
     {
         return $this->belongsTo(Account::class, 'ledger_account_id');
     }
-
-    public function transactions()
+public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class)->orderBy('invoice_date', 'desc');
+    }
+  public function payments(): HasMany
+    {
+        return $this->hasMany(InvoicePayment::class)->orderBy('payment_date', 'desc');
+    }  
+    public function transactions(): HasMany
     {
         return $this->hasMany(CustomerLedgerTransaction::class)->orderBy('transaction_date', 'desc');
     }
-
-    public function dueExtensions()
+public function ledgerTransactions(): HasMany
+    {
+        return $this->hasMany(CustomerLedgerTransaction::class)->orderBy('transaction_date', 'desc');
+    }
+    public function dueExtensions(): HasMany
     {
         return $this->hasMany(CustomerDueExtension::class)->orderBy('created_at', 'desc');
     }
-
+ public function priceHistory(): HasMany
+    {
+        return $this->hasMany(CustomerPriceHistory::class);
+    }
     // Calculate current balance
     public function getCurrentBalanceAttribute()
     {
@@ -608,6 +623,92 @@ public function transactionEntries()
     return $this->ledgerAccount->transactionEntries();
 }
 
+/**
+ * Get outstanding balance for customer
+ */
+public function getOutstandingBalance(): float
+    {
+        if (!$this->ledger_account_id) {
+            return 0;
+        }
+
+        $account = Account::find($this->ledger_account_id);
+        if (!$account) {
+            return 0;
+        }
+
+        // Get all debits (increases AR)
+        $debits = DB::table('transaction_entries as te')
+            ->join('transactions as t', 'te.transaction_id', '=', 't.id')
+            ->where('te.account_id', $account->id)
+            ->where('te.type', 'debit')
+            ->whereIn('t.status', ['posted', 'voided']) // Include posted and voided for accuracy
+            ->sum('te.amount');
+
+        // Get all credits (decreases AR - payments)
+        $credits = DB::table('transaction_entries as te')
+            ->join('transactions as t', 'te.transaction_id', '=', 't.id')
+            ->where('te.account_id', $account->id)
+            ->where('te.type', 'credit')
+            ->whereIn('t.status', ['posted', 'voided'])
+            ->sum('te.amount');
+
+        // AR is a debit account, so: Opening Balance (debit) + Debits - Credits
+        if ($this->opening_balance_type === 'credit') {
+            $balance = -$this->opening_balance + $debits - $credits;
+        } else {
+            $balance = $this->opening_balance + $debits - $credits;
+        }
+
+        return round($balance, 2);
+    }
+
+public function getBalanceFromInvoices(): float
+    {
+        // Get all invoices (except deleted)
+        $invoiceTotal = DB::table('invoices')
+            ->where('customer_id', $this->id)
+            ->whereNull('deleted_at')
+            ->sum('total_amount');
+
+        // Get all payments (except deleted)
+        $paymentTotal = DB::table('invoice_payments')
+            ->whereIn('invoice_id', $this->invoices()->pluck('id'))
+            ->whereNull('deleted_at')
+            ->sum('amount');
+
+        return round($invoiceTotal - $paymentTotal, 2);
+    }
+    public function getCustomerInfo(): array
+    {
+        return [
+            'id' => $this->id,
+            'customer_code' => $this->customer_code,
+            'name' => $this->name,
+            'phone' => $this->phone,
+            'email' => $this->email,
+            'address' => $this->address,
+            'city' => $this->city,
+            'outstanding_balance' => $this->getOutstandingBalance(),
+            'credit_limit' => $this->credit_limit ?? 0,
+            'is_active' => $this->is_active,
+        ];
+    }
+
+
+// ===== SCOPES =====
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)->whereNull('deleted_at');
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
+
+    // ===== BOOT =====
+
 
 }
 
@@ -726,6 +827,446 @@ class CustomerLedgerTransaction extends Model
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function transaction()
+    {
+        return $this->belongsTo(Transaction::class);
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\CustomerPriceHistory.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class CustomerPriceHistory extends Model
+{
+    protected $table = 'customer_price_history';
+
+    protected $fillable = [
+        'customer_id',
+        'product_id',
+        'rate',
+        'last_sold_date',
+    ];
+
+    protected $casts = [
+        'rate' => 'decimal:2',
+        'last_sold_date' => 'date',
+    ];
+
+    // Relationships
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\Delivery.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Delivery extends Model
+{
+    use SoftDeletes;
+
+    protected $fillable = [
+        'challan_number',
+        'invoice_id',
+        'delivery_date',
+        'delivery_method',
+        'driver_name',
+        'delivered_by_user_id',
+        'notes',
+        'transaction_id',
+    ];
+
+    protected $casts = [
+        'delivery_date' => 'date',
+    ];
+
+    // Relationships
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
+    public function items()
+    {
+        return $this->hasMany(DeliveryItem::class);
+    }
+
+    public function deliveredBy()
+    {
+        return $this->belongsTo(User::class, 'delivered_by_user_id');
+    }
+
+    public function transaction()
+    {
+        return $this->belongsTo(Transaction::class);
+    }
+
+    // Methods
+    public function getTotalDeliveredAmount()
+    {
+        $total = 0;
+        foreach ($this->items as $item) {
+            $invoiceItem = $item->invoiceItem;
+            $total += $invoiceItem->unit_price * $item->delivered_quantity;
+        }
+        return $total;
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\DeliveryItem.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class DeliveryItem extends Model
+{
+    protected $fillable = [
+        'delivery_id',
+        'invoice_item_id',
+        'delivered_quantity',
+    ];
+
+    protected $casts = [
+        'delivered_quantity' => 'decimal:3',
+    ];
+
+    public function delivery()
+    {
+        return $this->belongsTo(Delivery::class);
+    }
+
+    public function invoiceItem()
+    {
+        return $this->belongsTo(InvoiceItem::class);
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\Invoice.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Invoice extends Model
+{
+    use SoftDeletes;
+
+    protected $fillable = [
+        'invoice_number',
+        'invoice_date',
+        'due_date',
+        'customer_id',
+        'sales_account_id',
+        'customer_ledger_account_id',
+        'sales_return_account_id',
+        'subtotal',
+        'discount_amount',
+        'tax_amount',
+        'total_amount',
+        'outstanding_at_creation',
+        'delivery_status',
+        'internal_notes',
+        'customer_notes',
+        'deleted_by',
+    ];
+
+    protected $casts = [
+        'invoice_date' => 'date',
+        'due_date' => 'date',
+        'subtotal' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'tax_amount' => 'decimal:2',
+        'total_amount' => 'decimal:2',
+        'outstanding_at_creation' => 'decimal:2',
+    ];
+
+    // Relationships
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
+    }
+
+    public function items()
+    {
+        return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function deliveries()
+    {
+        return $this->hasMany(Delivery::class);
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(InvoicePayment::class);
+    }
+
+    public function deletedBy()
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
+    }
+
+    public function salesAccount()
+    {
+        return $this->belongsTo(Account::class, 'sales_account_id');
+    }
+
+    public function customerLedgerAccount()
+    {
+        return $this->belongsTo(Account::class, 'customer_ledger_account_id');
+    }
+
+    // Scopes
+    public function scopeActive($query)
+    {
+        return $query->whereNull('deleted_at');
+    }
+
+    public function scopeDeleted($query)
+    {
+        return $query->whereNotNull('deleted_at');
+    }
+
+    public function scopeByCustomer($query, $customerId)
+    {
+        return $query->where('customer_id', $customerId);
+    }
+
+    public function scopeByDateRange($query, $startDate, $endDate)
+    {
+        return $query->whereBetween('invoice_date', [$startDate, $endDate]);
+    }
+
+    // Accessors & Methods
+    public function getTotalPaidAttribute()
+    {
+        return $this->payments()->where('deleted_at', null)->sum('amount') ?? 0;
+    }
+
+    public function getOutstandingBalanceAttribute()
+    {
+        return $this->total_amount - $this->total_paid;
+    }
+
+    public function getDeliveredQuantityAttribute($itemId)
+    {
+        return $this->items()
+            ->where('id', $itemId)
+            ->first()
+            ->delivered_quantity ?? 0;
+    }
+
+    public function getTotalDeliveredQuantityByInvoice()
+    {
+        $allDelivered = true;
+        foreach ($this->items as $item) {
+            if ($item->delivered_quantity < $item->quantity) {
+                $allDelivered = false;
+                break;
+            }
+        }
+        return $allDelivered;
+    }
+
+    public function isFullyDelivered()
+    {
+        return $this->delivery_status === 'delivered';
+    }
+
+    public function updateDeliveryStatus()
+    {
+        $totalQty = 0;
+        $deliveredQty = 0;
+
+        foreach ($this->items as $item) {
+            $totalQty += $item->quantity;
+            $deliveredQty += $item->delivered_quantity;
+        }
+
+        if ($deliveredQty == 0) {
+            $this->delivery_status = 'pending';
+        } elseif ($deliveredQty >= $totalQty) {
+            $this->delivery_status = 'delivered';
+        } else {
+            $this->delivery_status = 'partial';
+        }
+
+        $this->save();
+    }
+
+    public function canBeDeleted()
+    {
+        // Can delete only if not soft deleted already
+        return $this->deleted_at === null;
+    }
+
+    public function markAsDeleted($userId)
+    {
+        $this->deleted_by = $userId;
+        $this->deleted_at = now();
+        $this->save();
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\InvoiceItem.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class InvoiceItem extends Model
+{
+    protected $fillable = [
+        'invoice_id',
+        'product_id',
+        'item_type',
+        'description',
+        'unit_id',
+        'quantity',
+        'unit_price',
+        'discount_percent',
+        'discount_amount',
+        'line_total',
+        'rate_given_to_customer',
+        'delivered_quantity',
+    ];
+
+    protected $casts = [
+        'quantity' => 'decimal:3',
+        'unit_price' => 'decimal:2',
+        'discount_percent' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'line_total' => 'decimal:2',
+        'rate_given_to_customer' => 'decimal:2',
+        'delivered_quantity' => 'decimal:3',
+    ];
+
+    // Relationships
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    public function unit()
+    {
+        return $this->belongsTo(Unit::class);
+    }
+
+    public function deliveryItems()
+    {
+        return $this->hasMany(DeliveryItem::class);
+    }
+
+    // Methods
+    public function getRemainingQuantity()
+    {
+        return $this->quantity - $this->delivered_quantity;
+    }
+
+    public function isFullyDelivered()
+    {
+        return $this->delivered_quantity >= $this->quantity;
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\InvoicePayment.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class InvoicePayment extends Model
+{
+    use SoftDeletes;
+
+    protected $fillable = [
+        'payment_number',
+        'invoice_id',
+        'payment_date',
+        'amount',
+        'payment_method',
+        'account_id',
+        'transaction_id',
+        'cheque_number',
+        'cheque_date',
+        'bank_name',
+        'notes',
+    ];
+
+    protected $casts = [
+        'payment_date' => 'date',
+        'cheque_date' => 'date',
+        'amount' => 'decimal:2',
+    ];
+
+    // Relationships
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
+    public function account()
+    {
+        return $this->belongsTo(Account::class);
     }
 
     public function transaction()
@@ -878,6 +1419,49 @@ class JournalVoucher extends Model
 
 
 ================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Models\PassiveIncomeItem.php
+================================================================================
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class PassiveIncomeItem extends Model
+{
+    use SoftDeletes;
+
+    protected $table = 'passive_income_items';
+
+    protected $fillable = [
+        'name',
+        'account_id',
+        'description',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    // Relationships
+    public function account()
+    {
+        return $this->belongsTo(Account::class);
+    }
+
+    // Scopes
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)->whereNull('deleted_at');
+    }
+}
+
+
+
+================================================================================
 FILE: I:\Laravel Projects\gnucash\app\Models\PaymentVoucher.php
 ================================================================================
 
@@ -996,10 +1580,12 @@ FILE: I:\Laravel Projects\gnucash\app\Models\Product.php
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\StockMovement;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Product extends Model
 {
@@ -1222,6 +1808,154 @@ public function movements()
         }
         
         return implode(' + ', $display);
+    }
+
+    public function decrementStock($quantity, $unitId = null)
+{
+    $unit = $unitId ? Unit::find($unitId) : $this->baseUnit;
+    
+    // Convert to base unit if needed
+    if ($unit && $unit->id !== $this->base_unit_id) {
+        $productUnit = Unit::where('product_id', $this->id)
+            ->where('unit_id', $unit->id)
+            ->first();
+        if ($productUnit) {
+            $quantity = $quantity * $productUnit->conversion_factor;
+        }
+    }
+
+    $this->opening_quantity -= $quantity;
+    $this->save();
+
+    // Record in stock movements
+    ProductMovement::create([
+        'product_id' => $this->id,
+        'movement_type' => 'sales',  // Or 'delivery' for tracking
+        'quantity' => $quantity,
+        'reference_type' => 'invoice',
+        'reference_id' => null, // Will be set from controller
+        'notes' => 'Sales delivery',
+    ]);
+}
+
+public function incrementStock($quantity, $unitId = null)
+{
+    $unit = $unitId ? Unit::find($unitId) : $this->baseUnit;
+    
+    if ($unit && $unit->id !== $this->base_unit_id) {
+        $productUnit = Unit::where('product_id', $this->id)
+            ->where('unit_id', $unit->id)
+            ->first();
+        if ($productUnit) {
+            $quantity = $quantity * $productUnit->conversion_factor;
+        }
+    }
+
+    $this->opening_quantity += $quantity;
+    $this->save();
+
+    ProductMovement::create([
+        'product_id' => $this->id,
+        'movement_type' => 'return',
+        'quantity' => $quantity,
+        'reference_type' => 'delivery_reversal',
+        'reference_id' => null,
+        'notes' => 'Delivery cancelled/returned',
+    ]);
+}
+
+
+public function getCurrentStockDisplay(): array
+{
+    $baseQty = $this->current_stock ?? 0;
+    
+    // Get all alternative units ordered by conversion factor (largest first)
+    $alternativeUnits = $this->alternativeUnits()
+        ->orderBy('conversion_factor', 'DESC')
+        ->get();
+
+    if ($alternativeUnits->isEmpty()) {
+        return [
+            'base_quantity' => $baseQty,
+            'display_text' => number_format($baseQty, 2) . ' ' . ($this->baseUnit->symbol ?? 'unit'),
+            'unit_breakdown' => null,
+        ];
+    }
+
+    $display = [];
+    $remainingQty = $baseQty;
+
+    foreach ($alternativeUnits as $unit) {
+        if ($remainingQty >= $unit->pivot->conversion_factor) {
+            $unitQty = floor($remainingQty / $unit->pivot->conversion_factor);
+            if ($unitQty > 0) {
+                $display[] = $unitQty . ' ' . $unit->symbol;
+                $remainingQty = fmod($remainingQty, $unit->pivot->conversion_factor);
+            }
+        }
+    }
+
+    // Add remaining base units
+    if ($remainingQty > 0.01) {
+        $display[] = number_format($remainingQty, 2) . ' ' . $this->baseUnit->symbol;
+    }
+
+    return [
+        'base_quantity' => $baseQty,
+        'display_text' => implode(' + ', $display) ?? number_format($baseQty, 2) . ' ' . $this->baseUnit->symbol,
+        'unit_breakdown' => $display,
+    ];
+}
+
+public function convertFromAlternateUnits($quantity, $selectedUnitId): float
+{
+    if (!$selectedUnitId) {
+        return floatval($quantity); // Already in base units
+    }
+
+    $unit = $this->alternativeUnits()
+        ->where('unit_id', $selectedUnitId)
+        ->first();
+
+    if ($unit) {
+        return $quantity * $unit->pivot->conversion_factor;
+    }
+
+    return floatval($quantity);
+}
+
+public function getAvailableUnitsForSales(): array
+{
+    $units = [
+        [
+            'id' => $this->base_unit_id,
+            'name' => $this->baseUnit->name ?? 'Base Unit',
+            'symbol' => $this->baseUnit->symbol ?? '',
+            'conversion_factor' => 1,
+            'is_base' => true,
+        ]
+    ];
+
+    $alternates = $this->alternativeUnits()
+        ->where('is_sales_unit', true)
+        ->orderBy('conversion_factor', 'DESC')
+        ->get();
+
+    foreach ($alternates as $alt) {
+        $units[] = [
+            'id' => $alt->id,
+            'name' => $alt->name,
+            'symbol' => $alt->symbol,
+            'conversion_factor' => $alt->pivot->conversion_factor,
+            'is_base' => false,
+        ];
+    }
+
+    return $units;
+}
+    public function customerPriceHistory(): HasMany
+    {
+        return $this->hasMany(CustomerPriceHistory::class, 'product_id');
     }
 }
 

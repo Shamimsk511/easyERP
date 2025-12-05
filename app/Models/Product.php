@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\StockMovement;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Product extends Model
 {
@@ -228,5 +230,153 @@ public function movements()
         }
         
         return implode(' + ', $display);
+    }
+
+    public function decrementStock($quantity, $unitId = null)
+{
+    $unit = $unitId ? Unit::find($unitId) : $this->baseUnit;
+    
+    // Convert to base unit if needed
+    if ($unit && $unit->id !== $this->base_unit_id) {
+        $productUnit = Unit::where('product_id', $this->id)
+            ->where('unit_id', $unit->id)
+            ->first();
+        if ($productUnit) {
+            $quantity = $quantity * $productUnit->conversion_factor;
+        }
+    }
+
+    $this->opening_quantity -= $quantity;
+    $this->save();
+
+    // Record in stock movements
+    ProductMovement::create([
+        'product_id' => $this->id,
+        'movement_type' => 'sales',  // Or 'delivery' for tracking
+        'quantity' => $quantity,
+        'reference_type' => 'invoice',
+        'reference_id' => null, // Will be set from controller
+        'notes' => 'Sales delivery',
+    ]);
+}
+
+public function incrementStock($quantity, $unitId = null)
+{
+    $unit = $unitId ? Unit::find($unitId) : $this->baseUnit;
+    
+    if ($unit && $unit->id !== $this->base_unit_id) {
+        $productUnit = Unit::where('product_id', $this->id)
+            ->where('unit_id', $unit->id)
+            ->first();
+        if ($productUnit) {
+            $quantity = $quantity * $productUnit->conversion_factor;
+        }
+    }
+
+    $this->opening_quantity += $quantity;
+    $this->save();
+
+    ProductMovement::create([
+        'product_id' => $this->id,
+        'movement_type' => 'return',
+        'quantity' => $quantity,
+        'reference_type' => 'delivery_reversal',
+        'reference_id' => null,
+        'notes' => 'Delivery cancelled/returned',
+    ]);
+}
+
+
+public function getCurrentStockDisplay(): array
+{
+    $baseQty = $this->current_stock ?? 0;
+    
+    // Get all alternative units ordered by conversion factor (largest first)
+    $alternativeUnits = $this->alternativeUnits()
+        ->orderBy('conversion_factor', 'DESC')
+        ->get();
+
+    if ($alternativeUnits->isEmpty()) {
+        return [
+            'base_quantity' => $baseQty,
+            'display_text' => number_format($baseQty, 2) . ' ' . ($this->baseUnit->symbol ?? 'unit'),
+            'unit_breakdown' => null,
+        ];
+    }
+
+    $display = [];
+    $remainingQty = $baseQty;
+
+    foreach ($alternativeUnits as $unit) {
+        if ($remainingQty >= $unit->pivot->conversion_factor) {
+            $unitQty = floor($remainingQty / $unit->pivot->conversion_factor);
+            if ($unitQty > 0) {
+                $display[] = $unitQty . ' ' . $unit->symbol;
+                $remainingQty = fmod($remainingQty, $unit->pivot->conversion_factor);
+            }
+        }
+    }
+
+    // Add remaining base units
+    if ($remainingQty > 0.01) {
+        $display[] = number_format($remainingQty, 2) . ' ' . $this->baseUnit->symbol;
+    }
+
+    return [
+        'base_quantity' => $baseQty,
+        'display_text' => implode(' + ', $display) ?? number_format($baseQty, 2) . ' ' . $this->baseUnit->symbol,
+        'unit_breakdown' => $display,
+    ];
+}
+
+public function convertFromAlternateUnits($quantity, $selectedUnitId): float
+{
+    if (!$selectedUnitId) {
+        return floatval($quantity); // Already in base units
+    }
+
+    $unit = $this->alternativeUnits()
+        ->where('unit_id', $selectedUnitId)
+        ->first();
+
+    if ($unit) {
+        return $quantity * $unit->pivot->conversion_factor;
+    }
+
+    return floatval($quantity);
+}
+
+public function getAvailableUnitsForSales(): array
+{
+    $units = [
+        [
+            'id' => $this->base_unit_id,
+            'name' => $this->baseUnit->name ?? 'Base Unit',
+            'symbol' => $this->baseUnit->symbol ?? '',
+            'conversion_factor' => 1,
+            'is_base' => true,
+        ]
+    ];
+
+    $alternates = $this->alternativeUnits()
+        ->where('is_sales_unit', true)
+        ->orderBy('conversion_factor', 'DESC')
+        ->get();
+
+    foreach ($alternates as $alt) {
+        $units[] = [
+            'id' => $alt->id,
+            'name' => $alt->name,
+            'symbol' => $alt->symbol,
+            'conversion_factor' => $alt->pivot->conversion_factor,
+            'is_base' => false,
+        ];
+    }
+
+    return $units;
+}
+    public function customerPriceHistory(): HasMany
+    {
+        return $this->hasMany(CustomerPriceHistory::class, 'product_id');
     }
 }

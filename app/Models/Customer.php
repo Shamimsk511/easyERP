@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Customer extends Model
 {
@@ -54,17 +56,30 @@ class Customer extends Model
     {
         return $this->belongsTo(Account::class, 'ledger_account_id');
     }
-
-    public function transactions()
+public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class)->orderBy('invoice_date', 'desc');
+    }
+  public function payments(): HasMany
+    {
+        return $this->hasMany(InvoicePayment::class)->orderBy('payment_date', 'desc');
+    }  
+    public function transactions(): HasMany
     {
         return $this->hasMany(CustomerLedgerTransaction::class)->orderBy('transaction_date', 'desc');
     }
-
-    public function dueExtensions()
+public function ledgerTransactions(): HasMany
+    {
+        return $this->hasMany(CustomerLedgerTransaction::class)->orderBy('transaction_date', 'desc');
+    }
+    public function dueExtensions(): HasMany
     {
         return $this->hasMany(CustomerDueExtension::class)->orderBy('created_at', 'desc');
     }
-
+ public function priceHistory(): HasMany
+    {
+        return $this->hasMany(CustomerPriceHistory::class);
+    }
     // Calculate current balance
     public function getCurrentBalanceAttribute()
     {
@@ -248,6 +263,92 @@ public function transactionEntries()
 {
     return $this->ledgerAccount->transactionEntries();
 }
+
+/**
+ * Get outstanding balance for customer
+ */
+public function getOutstandingBalance(): float
+    {
+        if (!$this->ledger_account_id) {
+            return 0;
+        }
+
+        $account = Account::find($this->ledger_account_id);
+        if (!$account) {
+            return 0;
+        }
+
+        // Get all debits (increases AR)
+        $debits = DB::table('transaction_entries as te')
+            ->join('transactions as t', 'te.transaction_id', '=', 't.id')
+            ->where('te.account_id', $account->id)
+            ->where('te.type', 'debit')
+            ->whereIn('t.status', ['posted', 'voided']) // Include posted and voided for accuracy
+            ->sum('te.amount');
+
+        // Get all credits (decreases AR - payments)
+        $credits = DB::table('transaction_entries as te')
+            ->join('transactions as t', 'te.transaction_id', '=', 't.id')
+            ->where('te.account_id', $account->id)
+            ->where('te.type', 'credit')
+            ->whereIn('t.status', ['posted', 'voided'])
+            ->sum('te.amount');
+
+        // AR is a debit account, so: Opening Balance (debit) + Debits - Credits
+        if ($this->opening_balance_type === 'credit') {
+            $balance = -$this->opening_balance + $debits - $credits;
+        } else {
+            $balance = $this->opening_balance + $debits - $credits;
+        }
+
+        return round($balance, 2);
+    }
+
+public function getBalanceFromInvoices(): float
+    {
+        // Get all invoices (except deleted)
+        $invoiceTotal = DB::table('invoices')
+            ->where('customer_id', $this->id)
+            ->whereNull('deleted_at')
+            ->sum('total_amount');
+
+        // Get all payments (except deleted)
+        $paymentTotal = DB::table('invoice_payments')
+            ->whereIn('invoice_id', $this->invoices()->pluck('id'))
+            ->whereNull('deleted_at')
+            ->sum('amount');
+
+        return round($invoiceTotal - $paymentTotal, 2);
+    }
+    public function getCustomerInfo(): array
+    {
+        return [
+            'id' => $this->id,
+            'customer_code' => $this->customer_code,
+            'name' => $this->name,
+            'phone' => $this->phone,
+            'email' => $this->email,
+            'address' => $this->address,
+            'city' => $this->city,
+            'outstanding_balance' => $this->getOutstandingBalance(),
+            'credit_limit' => $this->credit_limit ?? 0,
+            'is_active' => $this->is_active,
+        ];
+    }
+
+
+// ===== SCOPES =====
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)->whereNull('deleted_at');
+    }
+
+    public function scopeInactive($query)
+    {
+        return $query->where('is_active', false);
+    }
+
+    // ===== BOOT =====
 
 
 }

@@ -2041,6 +2041,131 @@ public function update(Request $request, CustomerGroup $customerGroup)
 
 
 ================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Http\Controllers\DeliveryController.php
+================================================================================
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use App\Models\Invoice;
+use App\Models\Delivery;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Services\Sales\DeliveryService;
+
+class DeliveryController extends Controller
+{
+    protected $deliveryService;
+
+    public function __construct(DeliveryService $deliveryService)
+    {
+        $this->deliveryService = $deliveryService;
+    }
+
+    /**
+     * Show delivery creation modal data
+     */
+    public function create(Request $request)
+    {
+        $invoiceId = $request->get('invoice_id');
+        $invoice = Invoice::with('items')->findOrFail($invoiceId);
+
+        // Get undelivered items
+        $items = $invoice->items()
+            ->where('delivered_quantity', '<', DB::raw('quantity'))
+            ->get()
+            ->map(function($item) {
+                return [
+                    'id' => $item->id,
+                    'description' => $item->description,
+                    'quantity' => $item->quantity,
+                    'delivered_quantity' => $item->delivered_quantity,
+                    'remaining' => $item->quantity - $item->delivered_quantity,
+                    'unit' => $item->unit ? $item->unit->symbol : '',
+                    'unit_price' => $item->unit_price,
+                ];
+            });
+
+        $users = User::where('is_active', true)->get();
+
+        return response()->json([
+            'invoice' => $invoice->toArray(),
+            'items' => $items,
+            'users' => $users,
+        ]);
+    }
+
+    /**
+     * Store delivery
+     */
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'invoice_id' => 'required|exists:invoices,id',
+            'delivery_date' => 'required|date',
+            'delivery_method' => 'nullable|string',
+            'driver_name' => 'nullable|string',
+            'delivered_by_user_id' => 'required|exists:users,id',
+            'items' => 'required|array|min:1',
+            'items.*.invoice_item_id' => 'required|exists:invoice_items,id',
+            'items.*.delivered_quantity' => 'required|numeric|min:0.01',
+            'notes' => 'nullable|string',
+        ]);
+
+        try {
+            $invoice = Invoice::find($validated['invoice_id']);
+            $delivery = $this->deliveryService->createDelivery($invoice, $validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Delivery created successfully!',
+                'delivery' => $delivery,
+                'challan_number' => $delivery->challan_number,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error creating delivery: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete delivery
+     */
+    public function destroy(Delivery $delivery)
+    {
+        try {
+            $this->deliveryService->deleteDelivery($delivery);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Delivery deleted and reversed successfully!',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error deleting delivery: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Print delivery challan
+     */
+    public function print(Delivery $delivery)
+    {
+        $delivery->load(['invoice.customer', 'items.invoiceItem']);
+
+        return view('sales.delivery.print', compact('delivery'));
+    }
+}
+
+
+
+================================================================================
 FILE: I:\Laravel Projects\gnucash\app\Http\Controllers\JournalVoucherController.php
 ================================================================================
 
@@ -2568,6 +2693,114 @@ class JournalVoucherController extends Controller
                 'more' => ($page * $perPage) < $total
             ]
         ]);
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Http\Controllers\PaymentController.php
+================================================================================
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Invoice;
+use App\Models\InvoicePayment;
+use App\Models\Account;
+use App\Services\Sales\PaymentService;
+use Illuminate\Http\Request;
+
+class PaymentController extends Controller
+{
+    protected $paymentService;
+
+    public function __construct(PaymentService $paymentService)
+    {
+        $this->paymentService = $paymentService;
+    }
+
+    /**
+     * Show payment form data (AJAX)
+     */
+    public function create(Request $request)
+    {
+        $invoiceId = $request->get('invoice_id');
+        $invoice = Invoice::find($invoiceId);
+
+        if (!$invoice) {
+            return response()->json(['error' => 'Invoice not found'], 404);
+        }
+
+        $cashBankAccounts = Account::whereIn('code', ['1110', '1120'])
+            ->where('is_active', true)
+            ->get();
+
+        return response()->json([
+            'invoice' => [
+                'id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'outstanding_balance' => $invoice->outstanding_balance,
+            ],
+            'accounts' => $cashBankAccounts,
+            'payment_methods' => ['cash', 'bank', 'cheque', 'online'],
+        ]);
+    }
+
+    /**
+     * Record payment (AJAX)
+     */
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'invoice_id'      => 'required|exists:invoices,id',
+            'payment_date'    => 'required|date',
+            'amount'          => 'required|numeric|min:0.01',
+            'payment_method'  => 'required|in:cash,bank,cheque,online',
+            'account_id'      => 'required|exists:accounts,id',
+            'cheque_number'   => 'nullable|string',
+            'cheque_date'     => 'nullable|date',
+            'bank_name'       => 'nullable|string',
+            'notes'           => 'nullable|string',
+        ]);
+
+        try {
+            $invoice = Invoice::find($validated['invoice_id']);
+            $payment = $this->paymentService->recordPayment($invoice, $validated);
+
+            return response()->json([
+                'success'         => true,
+                'message'         => 'Payment recorded successfully!',
+                'payment'         => $payment,
+                'new_outstanding' => $invoice->outstanding_balance,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete payment (AJAX, reverse transaction)
+     */
+    public function destroy(InvoicePayment $payment)
+    {
+        try {
+            $this->paymentService->deletePayment($payment);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment deleted and reversed successfully!',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error deleting payment: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }
 
@@ -3415,15 +3648,18 @@ FILE: I:\Laravel Projects\gnucash\app\Http\Controllers\ProductController.php
 
 namespace App\Http\Controllers;
 
-use App\Models\Unit;
-use App\Models\Account;
 use App\Models\Product;
 use App\Models\ProductGroup;
-use Illuminate\Http\Request;
+use App\Models\Unit;
+use App\Models\Account;
+use App\Models\Transaction;
+use App\Models\TransactionEntry;
 use App\Models\ProductMovement;
-use Illuminate\Validation\Rule;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 use Yajra\DataTables\Facades\DataTables;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -3438,6 +3674,17 @@ public function index(Request $request)
         
         return DataTables::eloquent($data)
             ->addIndexColumn()
+            // ADD THESE EXPLICIT COLUMNS FOR id, name, code
+            ->editColumn('id', function ($row) {
+                return $row->id;
+            })
+            ->editColumn('name', function ($row) {
+                return $row->name;
+            })
+            ->editColumn('code', function ($row) {
+                return $row->code ?? '<span class="text-muted">-</span>';
+            })
+            // EXISTING CUSTOM COLUMNS
             ->addColumn('group_name', function ($row) {
                 return $row->productGroup ? $row->productGroup->full_path : '<span class="badge badge-secondary">No Group</span>';
             })
@@ -3502,7 +3749,7 @@ public function index(Request $request)
                     $query->where('is_active', $request->status);
                 }
             })
-            ->rawColumns(['group_name', 'unit_name', 'current_stock', 'stock_value', 'rate_info', 'is_active', 'action'])
+            ->rawColumns(['code', 'group_name', 'unit_name', 'current_stock', 'stock_value', 'rate_info', 'is_active', 'action'])
             ->make(true);
     }
     
@@ -3511,6 +3758,7 @@ public function index(Request $request)
     
     return view('products.index', compact('productGroups'));
 }
+
 
 
     /**
@@ -3917,8 +4165,315 @@ public function getMovementsDatatable(Request $request, Product $product)
             ->make(true);
     }
 }
-}
 
+
+ /**
+     * Get product details with alternative unit conversion
+     * Returns current stock in all units
+     */
+    public function getProductDetails(Request $request)
+    {
+        try {
+            $productId = $request->get('product_id');
+            $product = Product::with(['baseUnit', 'alternativeUnits'])
+                ->findOrFail($productId);
+
+            // Get current stock in base unit
+            $baseStock = $product->currentstock ?? 0;
+
+            // Build alternative unit stocks
+            $alternativeUnitStocks = [];
+            foreach ($product->alternativeUnits as $altUnit) {
+                $conversionFactor = $altUnit->pivot->conversion_factor;
+                $altStock = $baseStock / $conversionFactor;
+                
+                $alternativeUnitStocks[] = [
+                    'unit_id' => $altUnit->id,
+                    'unit_name' => $altUnit->name,
+                    'unit_symbol' => $altUnit->symbol,
+                    'conversion_factor' => $conversionFactor,
+                    'stock' => round($altStock, 4),
+                    'is_purchase_unit' => (bool) $altUnit->pivot->is_purchase_unit,
+                    'is_sales_unit' => (bool) $altUnit->pivot->is_sales_unit,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'code' => $product->code,
+                    'base_unit' => [
+                        'id' => $product->baseUnit->id,
+                        'name' => $product->baseUnit->name,
+                        'symbol' => $product->baseUnit->symbol,
+                    ],
+                    'current_stock' => [
+                        'base_unit' => round($baseStock, 4),
+                        'base_unit_symbol' => $product->baseUnit->symbol,
+                        'alternative_units' => $alternativeUnitStocks,
+                    ],
+                    'purchase_price' => $product->purchase_price,
+                    'selling_price' => $product->selling_price,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get product details error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching product details',
+            ], 500);
+        }
+    }
+/**
+     * Calculate quantity in base unit from alternative unit
+     * Used when receiving purchase orders or creating invoices
+     */
+    public function convertToBaseUnit(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'product_id' => 'required|exists:products,id',
+                'quantity' => 'required|numeric|min:0.001',
+                'unit_id' => 'required|exists:units,id',
+            ]);
+
+            $product = Product::with('alternativeUnits', 'baseUnit')
+                ->findOrFail($validated['product_id']);
+
+            // If unit is the base unit
+            if ($validated['unit_id'] == $product->base_unit_id) {
+                return response()->json([
+                    'success' => true,
+                    'quantity_in_base_unit' => $validated['quantity'],
+                    'base_unit_symbol' => $product->baseUnit->symbol,
+                ]);
+            }
+
+            // Find conversion factor for alternative unit
+            $altUnit = $product->alternativeUnits()
+                ->where('unit_id', $validated['unit_id'])
+                ->first();
+
+            if (!$altUnit) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unit not configured for this product',
+                ], 422);
+            }
+
+            $conversionFactor = $altUnit->pivot->conversion_factor;
+            $quantityInBase = $validated['quantity'] * $conversionFactor;
+
+            return response()->json([
+                'success' => true,
+                'quantity_in_base_unit' => round($quantityInBase, 4),
+                'base_unit_symbol' => $product->baseUnit->symbol,
+                'conversion_factor' => $conversionFactor,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Convert to base unit error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error converting quantity',
+            ], 500);
+        }
+    }
+/**
+     * Get DataTables data for products with stock in alternative units
+     */
+    public function getProductsWithAlternativeStock(Request $request)
+    {
+        try {
+            $products = Product::with([
+                'productGroup',
+                'baseUnit',
+                'alternativeUnits',
+                'inventoryAccount'
+            ])->get();
+
+            // Transform data to include alternative unit stocks
+            $transformedProducts = $products->map(function ($product) {
+                $baseStock = $product->currentstock ?? 0;
+                
+                // Prepare alternative unit display
+                $altUnitDisplay = '';
+                foreach ($product->alternativeUnits as $altUnit) {
+                    if ($altUnit->pivot->is_sales_unit) {
+                        $conversionFactor = $altUnit->pivot->conversion_factor;
+                        $altStock = $baseStock / $conversionFactor;
+                        $altUnitDisplay .= round($altStock, 2) . ' ' . $altUnit->symbol . ' | ';
+                    }
+                }
+                $altUnitDisplay = rtrim($altUnitDisplay, ' | ');
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'code' => $product->code,
+                    'group_name' => $product->productGroup ? $product->productGroup->fullpath : 'No Group',
+                    'base_unit' => $product->baseUnit->symbol,
+                    'current_stock' => round($baseStock, 4),
+                    'alternative_units_display' => $altUnitDisplay ?: 'N/A',
+                    'is_active' => $product->is_active,
+                ];
+            });
+
+            return DataTables::of($transformedProducts)
+                ->addIndexColumn()
+                ->rawColumns(['alternative_units_display'])
+                ->make(true);
+        } catch (\Exception $e) {
+            Log::error('Get products with alternative stock error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching product data',
+            ], 500);
+        }
+    }
+ /**
+     * Record product movement with alternative unit support
+     * Call this when stock is updated (purchase, sale, adjustment)
+     */
+    private function recordProductMovement(
+        $productId,
+        $movementType,
+        $quantityInBaseUnit,
+        $rate = null,
+        $referenceType = null,
+        $referenceId = null,
+        $notes = null,
+        $unitId = null
+    ) {
+        try {
+            $product = Product::findOrFail($productId);
+            $stockBefore = $product->currentstock ?? 0;
+
+            // Update product stock
+            if ($movementType == 'purchase' || $movementType == 'opening_stock') {
+                $newStock = $stockBefore + $quantityInBaseUnit;
+            } else if ($movementType == 'sale' || $movementType == 'return') {
+                $newStock = $stockBefore - $quantityInBaseUnit;
+            } else if ($movementType == 'adjustment') {
+                $newStock = $quantityInBaseUnit; // Direct set for adjustments
+            }
+
+            $newStock = max(0, $newStock); // Prevent negative stock
+
+            // If unit was provided and it's not the base unit, get the conversion factor
+            $conversionNote = '';
+            if ($unitId && $unitId != $product->base_unit_id) {
+                $altUnit = $product->alternativeUnits()
+                    ->where('unit_id', $unitId)
+                    ->first();
+                
+                if ($altUnit) {
+                    $conversionFactor = $altUnit->pivot->conversion_factor;
+                    $quantityInAltUnit = $quantityInBaseUnit / $conversionFactor;
+                    $conversionNote = " ({$quantityInAltUnit} {$altUnit->symbol})";
+                }
+            }
+
+            // Create movement record
+            ProductMovement::create([
+                'product_id' => $productId,
+                'type' => $movementType,
+                'reference_type' => $referenceType,
+                'reference_id' => $referenceId,
+                'quantity' => $quantityInBaseUnit,
+                'rate' => $rate,
+                'stock_before' => $stockBefore,
+                'stock_after' => $newStock,
+                'movement_date' => now(),
+                'notes' => ($notes ?? '') . $conversionNote,
+                'created_by' => auth()->id(),
+            ]);
+
+            // Update product stock
+            $product->update(['currentstock' => $newStock]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Record product movement error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+ /**
+     * Get stock status with alternative units
+     * Useful for dashboard/reports showing stock in different units
+     */
+    public function getStockStatus(Request $request)
+    {
+        try {
+            $productId = $request->get('product_id');
+            $product = Product::with([
+                'baseUnit',
+                'alternativeUnits',
+                'inventoryAccount'
+            ])->findOrFail($productId);
+
+            $baseStock = $product->currentstock ?? 0;
+            $value = $baseStock * ($product->purchase_price ?? 0);
+
+            // Get minimum/reorder/maximum in base units
+            $stockLevels = [
+                'minimum' => $product->minimum_stock,
+                'reorder' => $product->reorder_level,
+                'maximum' => $product->maximum_stock,
+                'status' => 'normal',
+            ];
+
+            if ($baseStock < $stockLevels['minimum']) {
+                $stockLevels['status'] = 'critical';
+            } else if ($baseStock < $stockLevels['reorder']) {
+                $stockLevels['status'] = 'low';
+            } else if ($baseStock > $stockLevels['maximum']) {
+                $stockLevels['status'] = 'overstock';
+            }
+
+            // Build alternative unit representation
+            $alternativeUnits = [];
+            foreach ($product->alternativeUnits as $altUnit) {
+                $conversionFactor = $altUnit->pivot->conversion_factor;
+                $altStock = $baseStock / $conversionFactor;
+                
+                $alternativeUnits[] = [
+                    'unit_name' => $altUnit->name,
+                    'unit_symbol' => $altUnit->symbol,
+                    'stock' => round($altStock, 4),
+                    'is_purchase_unit' => (bool) $altUnit->pivot->is_purchase_unit,
+                    'is_sales_unit' => (bool) $altUnit->pivot->is_sales_unit,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'product_name' => $product->name,
+                    'base_unit' => [
+                        'symbol' => $product->baseUnit->symbol,
+                        'stock' => round($baseStock, 4),
+                    ],
+                    'alternative_units' => $alternativeUnits,
+                    'stock_value' => round($value, 2),
+                    'stock_levels' => $stockLevels,
+                    'inventory_account' => $product->inventoryAccount ? [
+                        'code' => $product->inventoryAccount->code,
+                        'name' => $product->inventoryAccount->name,
+                    ] : null,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get stock status error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching stock status',
+            ], 500);
+        }
+    }
+}
 
 
 ================================================================================
@@ -4180,18 +4735,19 @@ FILE: I:\Laravel Projects\gnucash\app\Http\Controllers\PurchaseOrderController.p
 
 namespace App\Http\Controllers;
 
-use App\Models\PurchaseOrder;
 use App\Models\Vendor;
-use App\Models\Product;
 use App\Models\Account;
+use App\Models\Product;
 use App\Models\Transaction;
-use App\Models\TransactionEntry;
-use App\Models\PurchaseOrderItem;
 use Illuminate\Http\Request;
+use App\Models\PurchaseOrder;
+use App\Models\ProductMovement;
+use App\Models\TransactionEntry;
 use Yajra\DataTables\DataTables;
+use App\Models\PurchaseOrderItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Models\ProductMovement;
+
 class PurchaseOrderController extends Controller
 {
 public function index(Request $request)
@@ -4272,6 +4828,184 @@ public function index(Request $request)
         return view('purchase_orders.create', compact('vendors', 'products', 'purchaseAccounts', 'defaultPurchaseAccount'));
     }
 
+    // public function store(Request $request)
+    // {
+    //     $validated = $request->validate([
+    //         'vendor_id' => 'required|exists:vendors,id',
+    //         'purchase_account_id' => 'required|exists:accounts,id',
+    //         'order_date' => 'required|date',
+    //         'items.*.product_id' => 'required|exists:products,id',
+    //         'items.*.quantity' => 'required|numeric|min:0.001',
+    //         'items.*.rate' => 'required|numeric|min:0.01',
+    //         'notes' => 'nullable|string',
+    //     ]);
+
+    //     DB::beginTransaction();
+    //     try {
+    //         // Create purchase order
+    //         $order = PurchaseOrder::create([
+    //             'vendor_id' => $validated['vendor_id'],
+    //             'purchase_account_id' => $validated['purchase_account_id'],
+    //             'order_number' => 'PO-' . now()->format('Ymd') . '-' . str_pad(PurchaseOrder::count() + 1, 4, '0', STR_PAD_LEFT),
+    //             'order_date' => $validated['order_date'],
+    //             'status' => 'pending',
+    //             'notes' => $validated['notes'] ?? null,
+    //             'total_amount' => collect($validated['items'])->sum(function($item) {
+    //                 return $item['quantity'] * $item['rate'];
+    //             }),
+    //         ]);
+
+    //         // Create order items
+    //         foreach ($validated['items'] as $item) {
+    //             PurchaseOrderItem::create([
+    //                 'purchase_order_id' => $order->id,
+    //                 'product_id' => $item['product_id'],
+    //                 'quantity' => $item['quantity'],
+    //                 'rate' => $item['rate'],
+    //                 'amount' => $item['quantity'] * $item['rate'],
+    //             ]);
+    //         }
+
+    //         DB::commit();
+    //         return response()->json(['success' => true, 'data' => $order]);
+            
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         Log::error('Purchase order creation failed: ' . $e->getMessage());
+    //         return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+    //     }
+    // }
+
+
+    /**
+     * Mark purchase order as received and create accounting entries
+     */
+public function markAsReceived(PurchaseOrder $order)
+    {
+        if ($order->status == 'received') {
+            return response()->json([
+                'success' => false,
+                'error' => 'Already marked as received',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Update order status
+            $order->status = 'received';
+            $order->received_date = now();
+            $order->save();
+
+            // 1. Update stock for all items AND log movements
+            foreach ($order->items as $item) {
+                $product = $item->product;
+
+                // Get current stock before update (handle null)
+                $stockBefore = $product->currentstock ?? 0;
+
+                // Item quantity is stored in base unit already
+                // If it was recorded with alternative unit, conversion happened at entry time
+                $quantityInBase = $item->quantity;
+
+                // Calculate new stock
+                $newStock = $stockBefore + $quantityInBase;
+
+                // Update product stock
+                $product->update(['currentstock' => $newStock]);
+
+                // Log the movement with conversion info
+                $conversionNote = "Purchase from {$order->vendor->name} - Order #{$order->order_number}";
+
+                ProductMovement::create([
+                    'product_id' => $product->id,
+                    'type' => 'purchase',
+                    'reference_type' => 'PurchaseOrder',
+                    'reference_id' => $order->id,
+                    'quantity' => $quantityInBase,
+                    'rate' => $item->rate,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $newStock,
+                    'movement_date' => $order->received_date ?? now(),
+                    'notes' => $conversionNote,
+                    'created_by' => auth()->id(),
+                ]);
+
+                Log::info("Stock updated for product {$product->name}", [
+                    'before' => $stockBefore,
+                    'added' => $quantityInBase,
+                    'after' => $newStock,
+                ]);
+            }
+
+            // 2. Create double-entry accounting transaction
+            $vendor = $order->vendor;
+            if (!$vendor->ledger_account_id) {
+                throw new \Exception('Vendor does not have a ledger account. Please update vendor settings.');
+            }
+
+            // Use the selected purchase account from the order
+            $purchaseAccount = $order->purchaseAccount;
+            if (!$purchaseAccount) {
+                throw new \Exception('Purchase account not found for this order.');
+            }
+
+            // Create transaction
+            $transaction = Transaction::create([
+                'date' => $order->received_date ?? now(),
+                'type' => 'purchase',
+                'reference' => $order->order_number,
+                'description' => "Purchase from {$vendor->name} - {$order->order_number}",
+                'notes' => $order->notes,
+                'status' => 'posted',
+            ]);
+
+            // Dr. Purchase Account (Expense increases)
+            TransactionEntry::create([
+                'transaction_id' => $transaction->id,
+                'account_id' => $purchaseAccount->id,
+                'amount' => $order->total_amount,
+                'type' => 'debit',
+                'memo' => "Purchase - {$order->order_number}",
+            ]);
+
+            // Cr. Vendor Account (Liability increases - we owe vendor)
+            TransactionEntry::create([
+                'transaction_id' => $transaction->id,
+                'account_id' => $vendor->ledger_account_id,
+                'amount' => $order->total_amount,
+                'type' => 'credit',
+                'memo' => "Payable to {$vendor->name}",
+            ]);
+
+            // Link transaction to purchase order
+            $order->transaction_id = $transaction->id;
+            $order->save();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Purchase order marked as received successfully! Stock updated and accounting entry created.',
+                'data' => $order->fresh('vendor', 'items.product', 'transaction'),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Mark as received failed', [
+                'order_id' => $order->id,
+                'trace' => $e->getTraceAsString(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Store purchase order with alternative unit conversion
+     */
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -4281,11 +5015,48 @@ public function index(Request $request)
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|numeric|min:0.001',
             'items.*.rate' => 'required|numeric|min:0.01',
+            'items.*.unit_id' => 'nullable|exists:units,id',
             'notes' => 'nullable|string',
         ]);
 
         DB::beginTransaction();
         try {
+            // Process quantities - convert to base unit if alternative unit provided
+            $processedItems = [];
+            $totalAmount = 0;
+
+            foreach ($validated['items'] as $item) {
+                $product = Product::with('alternativeUnits', 'baseUnit')
+                    ->findOrFail($item['product_id']);
+
+                $quantityInBase = $item['quantity'];
+                $unitId = $item['unit_id'] ?? $product->base_unit_id;
+
+                // If alternative unit provided, convert to base unit
+                if ($unitId != $product->base_unit_id) {
+                    $altUnit = $product->alternativeUnits()
+                        ->where('unit_id', $unitId)
+                        ->first();
+
+                    if (!$altUnit) {
+                        throw new \Exception("Unit not configured for product {$product->name}");
+                    }
+
+                    $conversionFactor = $altUnit->pivot->conversion_factor;
+                    $quantityInBase = $item['quantity'] * $conversionFactor;
+                }
+
+                $amount = $quantityInBase * $item['rate'];
+                $totalAmount += $amount;
+
+                $processedItems[] = [
+                    'product_id' => $item['product_id'],
+                    'quantity' => $quantityInBase, // Store in base unit
+                    'rate' => $item['rate'],
+                    'amount' => $amount,
+                ];
+            }
+
             // Create purchase order
             $order = PurchaseOrder::create([
                 'vendor_id' => $validated['vendor_id'],
@@ -4294,143 +5065,30 @@ public function index(Request $request)
                 'order_date' => $validated['order_date'],
                 'status' => 'pending',
                 'notes' => $validated['notes'] ?? null,
-                'total_amount' => collect($validated['items'])->sum(function($item) {
-                    return $item['quantity'] * $item['rate'];
-                }),
+                'total_amount' => $totalAmount,
             ]);
 
             // Create order items
-            foreach ($validated['items'] as $item) {
-                PurchaseOrderItem::create([
-                    'purchase_order_id' => $order->id,
-                    'product_id' => $item['product_id'],
-                    'quantity' => $item['quantity'],
-                    'rate' => $item['rate'],
-                    'amount' => $item['quantity'] * $item['rate'],
-                ]);
+            foreach ($processedItems as $item) {
+                $order->items()->create($item);
             }
 
             DB::commit();
-            return response()->json(['success' => true, 'data' => $order]);
-            
+
+            return response()->json([
+                'success' => true,
+                'data' => $order,
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Purchase order creation failed: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
         }
     }
-
-
-    /**
-     * Mark purchase order as received and create accounting entries
-     */
-public function markAsReceived(PurchaseOrder $order)
-{
-    if ($order->status === 'received') {
-        return response()->json(['success' => false, 'error' => 'Already marked as received'], 422);
-    }
-
-    DB::beginTransaction();
-    try {
-        // Update order status
-        $order->status = 'received';
-        $order->received_date = now();
-        $order->save();
-
-        // 1. Update stock for all items AND log movements
-        foreach ($order->items as $item) {
-            $product = $item->product;
-            
-            // Get current stock before update (handle null)
-            $stockBefore = $product->current_stock ?? 0; // ← FIX: Default to 0 if null
-            
-            // Calculate new stock
-            $newStock = $stockBefore + $item->quantity;
-            
-            // Update product stock
-            $product->update(['current_stock' => $newStock]);
-            
-            // Log the movement
-            ProductMovement::create([
-                'product_id' => $product->id,
-                'type' => 'purchase',
-                'reference_type' => PurchaseOrder::class,
-                'reference_id' => $order->id,
-                'quantity' => $item->quantity,
-                'rate' => $item->rate,
-                'stock_before' => $stockBefore, // ← Now guaranteed to be a number
-                'stock_after' => $newStock,
-                'movement_date' => $order->received_date ?? now(),
-                'notes' => 'Purchase from ' . $order->vendor->name . ' - ' . $order->order_number,
-                'created_by' => auth()->id(),
-            ]);
-            
-            Log::info("Stock updated for product {$product->name}: Before={$stockBefore}, Added={$item->quantity}, After={$newStock}");
-        }
-
-        // 2. Create double-entry accounting transaction
-        $vendor = $order->vendor;
-        
-        if (!$vendor->ledger_account_id) {
-            throw new \Exception('Vendor does not have a ledger account. Please update vendor settings.');
-        }
-
-        // Use the selected purchase account from the order
-        $purchaseAccount = $order->purchaseAccount;
-        
-        if (!$purchaseAccount) {
-            throw new \Exception('Purchase account not found for this order.');
-        }
-
-        // Create transaction
-        $transaction = Transaction::create([
-            'date' => $order->received_date ?? now(),
-            'type' => 'purchase',
-            'reference' => $order->order_number,
-            'description' => 'Purchase from ' . $vendor->name . ' - ' . $order->order_number,
-            'notes' => $order->notes,
-            'status' => 'posted',
-        ]);
-
-        // Dr. Purchase Account (Expense increases)
-        TransactionEntry::create([
-            'transaction_id' => $transaction->id,
-            'account_id' => $purchaseAccount->id,
-            'amount' => $order->total_amount,
-            'type' => 'debit',
-            'memo' => 'Purchase - ' . $order->order_number,
-        ]);
-
-        // Cr. Vendor Account (Liability increases - we owe vendor)
-        TransactionEntry::create([
-            'transaction_id' => $transaction->id,
-            'account_id' => $vendor->ledger_account_id,
-            'amount' => $order->total_amount,
-            'type' => 'credit',
-            'memo' => 'Payable to ' . $vendor->name,
-        ]);
-
-        // Link transaction to purchase order
-        $order->transaction_id = $transaction->id;
-        $order->save();
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Purchase order marked as received successfully! Stock updated and accounting entry created.',
-            'data' => $order->fresh(['vendor', 'items.product', 'transaction'])
-        ]);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        Log::error('Mark as received failed: ' . $e->getMessage(), [
-            'order_id' => $order->id,
-            'trace' => $e->getTraceAsString()
-        ]);
-        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
-    }
-}
 
 
 
@@ -5952,6 +6610,476 @@ class ReportController extends Controller
             
             fclose($file);
         }, 200, $headers);
+    }
+}
+
+
+
+================================================================================
+FILE: I:\Laravel Projects\gnucash\app\Http\Controllers\SalesController.php
+================================================================================
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\InvoicePayment;
+use App\Models\Customer;
+use App\Models\Product;
+use App\Models\Unit;
+use App\Models\Account;
+use App\Services\Sales\InvoiceService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Yajra\DataTables\Facades\DataTables;
+
+class SalesController extends Controller
+{
+    protected $invoiceService;
+
+    public function __construct(InvoiceService $invoiceService)
+    {
+        $this->invoiceService = $invoiceService;
+    }
+
+    // ===== VIEW METHODS =====
+    public function index(Request $request)
+    {
+        if ($request->ajax()) {
+            return $this->getInvoicesDataTable($request);
+        }
+
+        return view('sales.index');
+    }
+
+    public function create()
+    {
+        $salesAccounts = Account::where('type', 'income')
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get();
+
+        $products = Product::active()
+            ->select('id', 'name', 'code', 'base_unit_id', 'selling_price', 'current_stock')
+            ->with('baseUnit')
+            ->limit(50)
+            ->get();
+
+        return view('sales.create', compact('salesAccounts', 'products'));
+    }
+
+    public function show(Invoice $invoice)
+    {
+        $invoice->load(['customer', 'items.product', 'items.unit', 'deliveries', 'payments']);
+        return view('sales.show', compact('invoice'));
+    }
+ /**
+     * Update invoice (NEW - for edit functionality)
+     */
+    public function update(Request $request, Invoice $invoice)
+    {
+        $validated = $request->validate([
+            'customer_id'                 => 'required|exists:customers,id',
+            'invoice_date'                => 'required|date',
+            'due_date'                    => 'nullable|date',
+            'sales_account_id'            => 'nullable|exists:accounts,id',
+            'items'                       => 'required|array|min:1',
+            'items.*.product_id'          => 'required_if:items.*.item_type,product|exists:products,id',
+            'items.*.quantity'            => 'required|numeric|min:0.01',
+            'items.*.unit_id'             => 'nullable|exists:units,id', // Always defaults to base unit in service
+            'items.*.unit_price'          => 'required|numeric|min:0',
+            'items.*.discount_percent'    => 'nullable|numeric|min:0|max:100',
+            'internal_notes'              => 'nullable|string',
+            'customer_notes'              => 'nullable|string',
+        ]);
+
+        try {
+            // TODO: Implement update logic via InvoiceService (void old transaction, create new)
+            // For Phase 3, just redirect to show
+            return redirect()->route('sales.show', $invoice)
+                ->with('success', 'Invoice updated successfully!');
+        } catch (\Exception $e) {
+            Log::error('Invoice update error: ' . $e->getMessage());
+            return back()->withInput()->with('error', 'Failed to update invoice');
+        }
+    }
+
+    /**
+     * Edit invoice form (NEW)
+     */
+    public function edit(Invoice $invoice)
+    {
+        $salesAccounts = Account::where('type', 'income')
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get();
+
+        $products = Product::active()
+            ->select('id', 'name', 'code', 'base_unit_id', 'selling_price', 'current_stock')
+            ->with('baseUnit')
+            ->limit(50)
+            ->get();
+
+        return view('sales.edit', compact('invoice', 'salesAccounts', 'products'));
+    }
+    // ===== AJAX ENDPOINTS =====
+
+    /**
+     * Search customers with pagination
+     * Returns: name, phone, customer_code, outstanding_balance
+     */
+/**
+ * Search customers for Select2 AJAX
+ */
+public function searchCustomers(Request $request)
+{
+    try {
+        $search = $request->get('q', '');
+        $page = $request->get('page', 1);
+        $perPage = 10;
+
+        $query = Customer::where('is_active', true);
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('customer_code', 'LIKE', "%{$search}%")
+                    ->orWhere('phone', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $total = $query->count();
+        $customers = $query->orderBy('name')
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $results = $customers->map(function ($customer) {
+            return [
+                'id' => $customer->id,
+                'text' => "{$customer->customer_code} - {$customer->name}",
+                'customercode' => $customer->customer_code,
+                'name' => $customer->name,
+                'phone' => $customer->phone,
+            ];
+        });
+
+        // FIXED: Proper response structure
+        return response()->json([
+            'results' => $results->values()->all(),  // Convert to array
+            'pagination' => [
+                'more' => ($page * $perPage) < $total,
+            ],
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Search customers error: ' . $e->getMessage());
+        return response()->json([
+            'results' => [],
+            'pagination' => ['more' => false]
+        ]);
+    }
+}
+
+
+public function searchProducts(Request $request)
+{
+    try {
+        $search = $request->get('q', '');
+
+        $query = Product::where('is_active', true)
+            ->with('baseUnit', 'alternativeUnits');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('code', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $products = $query->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        $results = $products->map(function ($product) {
+            // FIX: Check both column names
+            $stock = $product->current_stock ?? $product->currentstock ?? 0;
+            
+            return [
+                'id' => $product->id,
+                'text' => $product->name . ($product->code ? ' (' . $product->code . ')' : ''),
+                'data' => [  // ← SIMPLIFIED: no HTML in data
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'code' => $product->code ?? '',
+                    'stock' => $stock,
+                    'unit' => $product->baseUnit->symbol ?? 'pc',
+                    'price' => $product->selling_price ?? 0,
+                ],
+            ];
+        });
+
+        return response()->json([
+            'results' => $results->values()->all(),
+            'pagination' => [
+                'more' => false
+            ],
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Search products error: ' . $e->getMessage());
+        return response()->json([
+            'results' => [],
+            'pagination' => ['more' => false]
+        ]);
+    }
+}
+
+
+
+
+
+
+    /**
+     * Quick add customer
+     */
+    public function quickAddCustomer(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:200',
+            'phone' => 'required|string|max:20',
+            'address' => 'nullable|string|max:500',
+            'city' => 'nullable|string|max:100',
+        ]);
+
+        try {
+            // Get or create ledger account
+            $accountName = "AR - {$validated['name']}";
+            $arAccount = Account::where('name', $accountName)->first();
+            
+            if (!$arAccount) {
+                $arAccount = Account::create([
+                    'code' => 'AR-CUST-' . str_pad(Customer::count() + 1, 4, '0', STR_PAD_LEFT),
+                    'name' => $accountName,
+                    'type' => 'asset',
+                    'description' => "Accounts Receivable for {$validated['name']}",
+                    'is_active' => true,
+                ]);
+            }
+
+            $customer = Customer::create([
+                'customer_code' => Customer::generateCustomerCode(),
+                'name' => $validated['name'],
+                'phone' => $validated['phone'],
+                'address' => $validated['address'] ?? '',
+                'city' => $validated['city'] ?? '',
+                'ledger_account_id' => $arAccount->id,
+                'is_active' => true,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'customer' => $customer->getCustomerInfo(),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Quick add customer error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create customer: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Get invoices data table
+     */
+    private function getInvoicesDataTable(Request $request)
+    {
+        $query = Invoice::with('customer')
+            ->select('invoices.*');
+
+        // Filters
+        $deliveryStatus = $request->get('delivery_status');
+        $showDeleted = $request->get('show_deleted', 'no') === 'yes';
+
+        if ($deliveryStatus) {
+            $query->where('delivery_status', $deliveryStatus);
+        }
+
+        if ($showDeleted) {
+            $query->onlyTrashed();
+        } else {
+            $query->whereNull('deleted_at');
+        }
+
+        return DataTables::eloquent($query)
+            ->addColumn('invoice_number', function($invoice) {
+                return $invoice->invoice_number;
+            })
+            ->addColumn('customer_name', function($invoice) {
+                return $invoice->customer->name ?? '-';
+            })
+            ->addColumn('invoice_date', function($invoice) {
+                return $invoice->invoice_date->format('d M Y');
+            })
+            ->addColumn('total_amount', function($invoice) {
+                return '৳ ' . number_format($invoice->total_amount, 2);
+            })
+            ->addColumn('total_paid', function($invoice) {
+                return '৳ ' . number_format($invoice->total_paid, 2);
+            })
+            ->addColumn('outstanding', function($invoice) {
+                $outstanding = $invoice->outstanding_balance;
+                $class = $outstanding > 0 ? 'text-danger' : 'text-success';
+                return '<span class="' . $class . '">৳ ' . number_format(abs($outstanding), 2) . '</span>';
+            })
+            ->addColumn('delivery_badge', function($invoice) {
+                $badges = [
+                    'pending' => '<span class="badge badge-warning">Pending</span>',
+                    'partial' => '<span class="badge badge-info">Partial</span>',
+                    'delivered' => '<span class="badge badge-success">Delivered</span>',
+                ];
+                return $badges[$invoice->delivery_status] ?? '-';
+            })
+            ->addColumn('actions', function($invoice) {
+                $viewBtn = '<a href="' . route('sales.show', $invoice) . '" class="btn btn-info btn-sm" title="View"><i class="fas fa-eye"></i></a>';
+                
+                if ($invoice->deleted_at) {
+                    return '<span class="text-muted">Deleted on ' . $invoice->deleted_at->format('d M Y') . '</span> ' . $viewBtn;
+                }
+
+                $editBtn = '<a href="' . route('sales.edit', $invoice) . '" class="btn btn-warning btn-sm" title="Edit"><i class="fas fa-edit"></i></a>';
+                $deliveryBtn = '<button class="btn btn-success btn-sm delivery-btn" data-id="' . $invoice->id . '" title="Create Delivery"><i class="fas fa-box"></i></button>';
+                $paymentBtn = '<button class="btn btn-primary btn-sm payment-btn" data-id="' . $invoice->id . '" title="Add Payment"><i class="fas fa-money-bill"></i></button>';
+                $deleteBtn = '<button class="btn btn-danger btn-sm delete-invoice" data-id="' . $invoice->id . '" title="Delete"><i class="fas fa-trash"></i></button>';
+
+                return $viewBtn . ' ' . $editBtn . ' ' . $deliveryBtn . ' ' . $paymentBtn . ' ' . $deleteBtn;
+            })
+            ->rawColumns(['outstanding', 'delivery_badge', 'actions'])
+            ->make(true);
+    }
+
+    // ===== STORE/UPDATE =====
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'customer_id' => 'required|exists:customers,id',
+            'invoice_date' => 'required|date',
+            'due_date' => 'nullable|date',
+            'sales_account_id' => 'nullable|exists:accounts,id',
+            'items' => 'required|array|min:1',
+            'items.*.product_id'          => 'nullable|exists:products,id',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.unit_id' => 'nullable|exists:units,id',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.discount_percent' => 'nullable|numeric|min:0|max:100',
+            'internal_notes' => 'nullable|string',
+            'customer_notes' => 'nullable|string',
+        ]);
+
+        try {
+            $invoice = $this->invoiceService->createInvoice($validated);
+
+             if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Invoice created successfully!',
+                'invoice_id' => $invoice->id,
+                'redirect' => route('sales.show', $invoice)
+            ]);
+        }
+            return redirect()
+                ->route('sales.show', $invoice)
+                ->with('success', 'Invoice created successfully!');
+        } catch (\Exception $e) {
+            Log::error('Invoice creation error: ' . $e->getMessage());
+            return back()
+                ->withInput()
+                ->with('error', 'Failed to create invoice: ' . $e->getMessage());
+        }
+    }
+
+    // ===== DELETE =====
+    public function destroy(Invoice $invoice)
+    {
+        try {
+            $this->invoiceService->deleteInvoice($invoice, auth()->id());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Invoice deleted successfully!',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Invoice deletion error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete invoice: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+     public function getCustomerDetails($customerId)
+    {
+       try {
+        $customer = Customer::with('ledgerAccount')->findOrFail($customerId);
+
+        // Calculate outstanding balance
+        $outstandingBalance = $this->calculateCustomerBalance($customer->id);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $customer->id,
+                'name' => $customer->name,
+                'customer_code' => $customer->customer_code,
+                'phone' => $customer->phone,
+                'city' => $customer->city,
+                'outstandingbalance' => round($outstandingBalance, 2),
+            ],
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Get customer details error: ' . $e->getMessage());
+        return response()->json(['success' => false, 'message' => 'Customer not found'], 404);
+    }
+}
+    private function calculateCustomerBalance($customerId)
+    {
+        $customer = Customer::findOrFail($customerId);
+
+        if (!$customer->ledger_account_id) {
+            return 0;
+        }
+
+        $account = Account::find($customer->ledger_account_id);
+        if (!$account) {
+            return 0;
+        }
+
+        // Get total debits (sales/invoices)
+        $debits = $account->transactionEntries()
+            ->where('type', 'debit')
+            ->sum('amount');
+
+        // Get total credits (payments received)
+        $credits = $account->transactionEntries()
+            ->where('type', 'credit')
+            ->sum('amount');
+
+        // Outstanding = Debits - Credits (what customer owes us)
+        $outstanding = $debits - $credits;
+
+        // Add opening balance if exists
+        if ($customer->opening_balance > 0) {
+            if ($customer->opening_balance_type === 'debit') {
+                $outstanding += $customer->opening_balance;
+            } else {
+                $outstanding -= $customer->opening_balance;
+            }
+        }
+
+        return $outstanding;
     }
 }
 

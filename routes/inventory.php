@@ -6,6 +6,14 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductGroupController;
 
 Route::middleware(['auth'])->group(function () {
+
+ // Product routes - NEW for alternative units
+    Route::get('/products/get-details', [ProductController::class, 'getProductDetails'])->name('products.get-details');
+    Route::post('/products/convert-to-base-unit', [ProductController::class, 'convertToBaseUnit'])->name('products.convert-to-base-unit');
+    Route::get('/products/with-alternative-stock', [ProductController::class, 'getProductsWithAlternativeStock'])->name('products.with-alternative-stock');
+    Route::get('/products/stock-status', [ProductController::class, 'getStockStatus'])->name('products.stock-status');
+
+
     // Units Management
     Route::resource('units', UnitController::class);
 

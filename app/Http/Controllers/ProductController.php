@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Unit;
-use App\Models\Account;
 use App\Models\Product;
 use App\Models\ProductGroup;
-use Illuminate\Http\Request;
+use App\Models\Unit;
+use App\Models\Account;
+use App\Models\Transaction;
+use App\Models\TransactionEntry;
 use App\Models\ProductMovement;
-use Illuminate\Validation\Rule;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 use Yajra\DataTables\Facades\DataTables;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -25,6 +28,17 @@ public function index(Request $request)
         
         return DataTables::eloquent($data)
             ->addIndexColumn()
+            // ADD THESE EXPLICIT COLUMNS FOR id, name, code
+            ->editColumn('id', function ($row) {
+                return $row->id;
+            })
+            ->editColumn('name', function ($row) {
+                return $row->name;
+            })
+            ->editColumn('code', function ($row) {
+                return $row->code ?? '<span class="text-muted">-</span>';
+            })
+            // EXISTING CUSTOM COLUMNS
             ->addColumn('group_name', function ($row) {
                 return $row->productGroup ? $row->productGroup->full_path : '<span class="badge badge-secondary">No Group</span>';
             })
@@ -89,7 +103,7 @@ public function index(Request $request)
                     $query->where('is_active', $request->status);
                 }
             })
-            ->rawColumns(['group_name', 'unit_name', 'current_stock', 'stock_value', 'rate_info', 'is_active', 'action'])
+            ->rawColumns(['code', 'group_name', 'unit_name', 'current_stock', 'stock_value', 'rate_info', 'is_active', 'action'])
             ->make(true);
     }
     
@@ -98,6 +112,7 @@ public function index(Request $request)
     
     return view('products.index', compact('productGroups'));
 }
+
 
 
     /**
@@ -504,4 +519,312 @@ public function getMovementsDatatable(Request $request, Product $product)
             ->make(true);
     }
 }
+
+
+ /**
+     * Get product details with alternative unit conversion
+     * Returns current stock in all units
+     */
+    public function getProductDetails(Request $request)
+    {
+        try {
+            $productId = $request->get('product_id');
+            $product = Product::with(['baseUnit', 'alternativeUnits'])
+                ->findOrFail($productId);
+
+            // Get current stock in base unit
+            $baseStock = $product->currentstock ?? 0;
+
+            // Build alternative unit stocks
+            $alternativeUnitStocks = [];
+            foreach ($product->alternativeUnits as $altUnit) {
+                $conversionFactor = $altUnit->pivot->conversion_factor;
+                $altStock = $baseStock / $conversionFactor;
+                
+                $alternativeUnitStocks[] = [
+                    'unit_id' => $altUnit->id,
+                    'unit_name' => $altUnit->name,
+                    'unit_symbol' => $altUnit->symbol,
+                    'conversion_factor' => $conversionFactor,
+                    'stock' => round($altStock, 4),
+                    'is_purchase_unit' => (bool) $altUnit->pivot->is_purchase_unit,
+                    'is_sales_unit' => (bool) $altUnit->pivot->is_sales_unit,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'code' => $product->code,
+                    'base_unit' => [
+                        'id' => $product->baseUnit->id,
+                        'name' => $product->baseUnit->name,
+                        'symbol' => $product->baseUnit->symbol,
+                    ],
+                    'current_stock' => [
+                        'base_unit' => round($baseStock, 4),
+                        'base_unit_symbol' => $product->baseUnit->symbol,
+                        'alternative_units' => $alternativeUnitStocks,
+                    ],
+                    'purchase_price' => $product->purchase_price,
+                    'selling_price' => $product->selling_price,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get product details error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching product details',
+            ], 500);
+        }
+    }
+/**
+     * Calculate quantity in base unit from alternative unit
+     * Used when receiving purchase orders or creating invoices
+     */
+    public function convertToBaseUnit(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'product_id' => 'required|exists:products,id',
+                'quantity' => 'required|numeric|min:0.001',
+                'unit_id' => 'required|exists:units,id',
+            ]);
+
+            $product = Product::with('alternativeUnits', 'baseUnit')
+                ->findOrFail($validated['product_id']);
+
+            // If unit is the base unit
+            if ($validated['unit_id'] == $product->base_unit_id) {
+                return response()->json([
+                    'success' => true,
+                    'quantity_in_base_unit' => $validated['quantity'],
+                    'base_unit_symbol' => $product->baseUnit->symbol,
+                ]);
+            }
+
+            // Find conversion factor for alternative unit
+            $altUnit = $product->alternativeUnits()
+                ->where('unit_id', $validated['unit_id'])
+                ->first();
+
+            if (!$altUnit) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unit not configured for this product',
+                ], 422);
+            }
+
+            $conversionFactor = $altUnit->pivot->conversion_factor;
+            $quantityInBase = $validated['quantity'] * $conversionFactor;
+
+            return response()->json([
+                'success' => true,
+                'quantity_in_base_unit' => round($quantityInBase, 4),
+                'base_unit_symbol' => $product->baseUnit->symbol,
+                'conversion_factor' => $conversionFactor,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Convert to base unit error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error converting quantity',
+            ], 500);
+        }
+    }
+/**
+     * Get DataTables data for products with stock in alternative units
+     */
+    public function getProductsWithAlternativeStock(Request $request)
+    {
+        try {
+            $products = Product::with([
+                'productGroup',
+                'baseUnit',
+                'alternativeUnits',
+                'inventoryAccount'
+            ])->get();
+
+            // Transform data to include alternative unit stocks
+            $transformedProducts = $products->map(function ($product) {
+                $baseStock = $product->currentstock ?? 0;
+                
+                // Prepare alternative unit display
+                $altUnitDisplay = '';
+                foreach ($product->alternativeUnits as $altUnit) {
+                    if ($altUnit->pivot->is_sales_unit) {
+                        $conversionFactor = $altUnit->pivot->conversion_factor;
+                        $altStock = $baseStock / $conversionFactor;
+                        $altUnitDisplay .= round($altStock, 2) . ' ' . $altUnit->symbol . ' | ';
+                    }
+                }
+                $altUnitDisplay = rtrim($altUnitDisplay, ' | ');
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'code' => $product->code,
+                    'group_name' => $product->productGroup ? $product->productGroup->fullpath : 'No Group',
+                    'base_unit' => $product->baseUnit->symbol,
+                    'current_stock' => round($baseStock, 4),
+                    'alternative_units_display' => $altUnitDisplay ?: 'N/A',
+                    'is_active' => $product->is_active,
+                ];
+            });
+
+            return DataTables::of($transformedProducts)
+                ->addIndexColumn()
+                ->rawColumns(['alternative_units_display'])
+                ->make(true);
+        } catch (\Exception $e) {
+            Log::error('Get products with alternative stock error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching product data',
+            ], 500);
+        }
+    }
+ /**
+     * Record product movement with alternative unit support
+     * Call this when stock is updated (purchase, sale, adjustment)
+     */
+    private function recordProductMovement(
+        $productId,
+        $movementType,
+        $quantityInBaseUnit,
+        $rate = null,
+        $referenceType = null,
+        $referenceId = null,
+        $notes = null,
+        $unitId = null
+    ) {
+        try {
+            $product = Product::findOrFail($productId);
+            $stockBefore = $product->currentstock ?? 0;
+
+            // Update product stock
+            if ($movementType == 'purchase' || $movementType == 'opening_stock') {
+                $newStock = $stockBefore + $quantityInBaseUnit;
+            } else if ($movementType == 'sale' || $movementType == 'return') {
+                $newStock = $stockBefore - $quantityInBaseUnit;
+            } else if ($movementType == 'adjustment') {
+                $newStock = $quantityInBaseUnit; // Direct set for adjustments
+            }
+
+            $newStock = max(0, $newStock); // Prevent negative stock
+
+            // If unit was provided and it's not the base unit, get the conversion factor
+            $conversionNote = '';
+            if ($unitId && $unitId != $product->base_unit_id) {
+                $altUnit = $product->alternativeUnits()
+                    ->where('unit_id', $unitId)
+                    ->first();
+                
+                if ($altUnit) {
+                    $conversionFactor = $altUnit->pivot->conversion_factor;
+                    $quantityInAltUnit = $quantityInBaseUnit / $conversionFactor;
+                    $conversionNote = " ({$quantityInAltUnit} {$altUnit->symbol})";
+                }
+            }
+
+            // Create movement record
+            ProductMovement::create([
+                'product_id' => $productId,
+                'type' => $movementType,
+                'reference_type' => $referenceType,
+                'reference_id' => $referenceId,
+                'quantity' => $quantityInBaseUnit,
+                'rate' => $rate,
+                'stock_before' => $stockBefore,
+                'stock_after' => $newStock,
+                'movement_date' => now(),
+                'notes' => ($notes ?? '') . $conversionNote,
+                'created_by' => auth()->id(),
+            ]);
+
+            // Update product stock
+            $product->update(['currentstock' => $newStock]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Record product movement error: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+ /**
+     * Get stock status with alternative units
+     * Useful for dashboard/reports showing stock in different units
+     */
+    public function getStockStatus(Request $request)
+    {
+        try {
+            $productId = $request->get('product_id');
+            $product = Product::with([
+                'baseUnit',
+                'alternativeUnits',
+                'inventoryAccount'
+            ])->findOrFail($productId);
+
+            $baseStock = $product->currentstock ?? 0;
+            $value = $baseStock * ($product->purchase_price ?? 0);
+
+            // Get minimum/reorder/maximum in base units
+            $stockLevels = [
+                'minimum' => $product->minimum_stock,
+                'reorder' => $product->reorder_level,
+                'maximum' => $product->maximum_stock,
+                'status' => 'normal',
+            ];
+
+            if ($baseStock < $stockLevels['minimum']) {
+                $stockLevels['status'] = 'critical';
+            } else if ($baseStock < $stockLevels['reorder']) {
+                $stockLevels['status'] = 'low';
+            } else if ($baseStock > $stockLevels['maximum']) {
+                $stockLevels['status'] = 'overstock';
+            }
+
+            // Build alternative unit representation
+            $alternativeUnits = [];
+            foreach ($product->alternativeUnits as $altUnit) {
+                $conversionFactor = $altUnit->pivot->conversion_factor;
+                $altStock = $baseStock / $conversionFactor;
+                
+                $alternativeUnits[] = [
+                    'unit_name' => $altUnit->name,
+                    'unit_symbol' => $altUnit->symbol,
+                    'stock' => round($altStock, 4),
+                    'is_purchase_unit' => (bool) $altUnit->pivot->is_purchase_unit,
+                    'is_sales_unit' => (bool) $altUnit->pivot->is_sales_unit,
+                ];
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'product_name' => $product->name,
+                    'base_unit' => [
+                        'symbol' => $product->baseUnit->symbol,
+                        'stock' => round($baseStock, 4),
+                    ],
+                    'alternative_units' => $alternativeUnits,
+                    'stock_value' => round($value, 2),
+                    'stock_levels' => $stockLevels,
+                    'inventory_account' => $product->inventoryAccount ? [
+                        'code' => $product->inventoryAccount->code,
+                        'name' => $product->inventoryAccount->name,
+                    ] : null,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get stock status error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error fetching stock status',
+            ], 500);
+        }
+    }
 }
