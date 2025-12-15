@@ -1,25 +1,57 @@
-<x-guest-layout>
-    <div class="mb-4 text-sm text-gray-600">
-        {{ __('Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.') }}
-    </div>
+@extends('adminlte::auth.passwords.email')
 
-    <!-- Session Status -->
-    <x-auth-session-status class="mb-4" :status="session('status')" />
+@section('auth_header', __('Reset Password'))
 
-    <form method="POST" action="{{ route('password.email') }}">
+@section('auth_body')
+    <p class="login-box-msg">
+        {{ __('Forgot your password? No problem. Just enter your email address and we will email you a password reset link.') }}
+    </p>
+
+    @if (session('status'))
+        <div class="alert alert-success" role="alert">
+            {{ session('status') }}
+        </div>
+    @endif
+
+    <form action="{{ route('password.email') }}" method="POST">
         @csrf
 
-        <!-- Email Address -->
-        <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email')" required autofocus />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+        <div class="input-group mb-3">
+            <input type="email" name="email" class="form-control @error('email') is-invalid @enderror" 
+                   value="{{ old('email') }}" placeholder="{{ __('Email') }}" required autofocus>
+            <div class="input-group-append">
+                <div class="input-group-text">
+                    <span class="fas fa-envelope"></span>
+                </div>
+            </div>
+            @error('email')
+                <span class="invalid-feedback" role="alert">
+                    <strong>{{ $message }}</strong>
+                </span>
+            @enderror
         </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <x-primary-button>
-                {{ __('Email Password Reset Link') }}
-            </x-primary-button>
+        <div class="row">
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fas fa-paper-plane mr-2"></i> {{ __('Send Password Reset Link') }}
+                </button>
+            </div>
         </div>
     </form>
-</x-guest-layout>
+@endsection
+
+@section('auth_footer')
+    <p class="mb-1">
+        <a href="{{ route('login') }}">
+            <i class="fas fa-sign-in-alt mr-1"></i> {{ __('Back to Login') }}
+        </a>
+    </p>
+    @if (Route::has('register'))
+        <p class="mb-0">
+            <a href="{{ route('register') }}">
+                <i class="fas fa-user-plus mr-1"></i> {{ __('Register a new account') }}
+            </a>
+        </p>
+    @endif
+@endsection

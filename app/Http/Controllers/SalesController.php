@@ -28,39 +28,47 @@ class SalesController extends Controller
      */
     public function index(Request $request)
     {
-        if ($request->ajax()) {
-            $query = Invoice::with(['customer', 'items', 'payments', 'deliveries'])
-                ->select('invoices.*');
+        return view('sales.index');
+    }
 
-            return DataTables::eloquent($query)
-                ->addColumn('customer_name', fn($invoice) => $invoice->customer->name ?? 'N/A')
-                ->addColumn('customer_phone', fn($invoice) => $invoice->customer->phone ?? 'N/A')
-                ->addColumn('total_paid', fn($invoice) => number_format($invoice->total_paid, 2))
-                ->addColumn('outstanding_balance', fn($invoice) => number_format($invoice->outstanding_balance, 2))
-                ->addColumn('delivery_status_badge', function ($invoice) {
-                    $badges = [
-                        'pending' => '<span class="badge badge-warning">Pending</span>',
-                        'partial' => '<span class="badge badge-info">Partial</span>',
-                        'delivered' => '<span class="badge badge-success">Delivered</span>',
-                    ];
-                    return $badges[$invoice->delivery_status] ?? '<span class="badge badge-secondary">Unknown</span>';
-                })
-                ->addColumn('action', function ($invoice) {
-                    return view('sales.partials.actions', compact('invoice'))->render();
-                })
-                ->editColumn('invoice_date', fn($invoice) => $invoice->invoice_date->format('d M Y'))
-                ->editColumn('total_amount', fn($invoice) => number_format($invoice->total_amount, 2))
-                ->filterColumn('customer_name', function ($query, $keyword) {
-                    $query->whereHas('customer', fn($q) => $q->where('name', 'like', "%{$keyword}%"));
-                })
-                ->filterColumn('customer_phone', function ($query, $keyword) {
-                    $query->whereHas('customer', fn($q) => $q->where('phone', 'like', "%{$keyword}%"));
-                })
-                ->rawColumns(['action', 'delivery_status_badge'])
-                ->make(true);
+    /**
+     * DataTables server-side data
+     */
+    public function getData(Request $request)
+    {
+        $query = Invoice::with(['customer', 'items', 'payments', 'deliveries'])
+            ->select('invoices.*');
+
+        // Filter by delivery status
+        if ($request->filled('delivery_status')) {
+            $query->where('delivery_status', $request->delivery_status);
         }
 
-        return view('sales.index');
+        // Filter deleted
+        if ($request->input('show_deleted') === 'yes') {
+            $query->onlyTrashed();
+        }
+
+        return DataTables::eloquent($query)
+            ->addColumn('customer_name', fn($inv) => $inv->customer->name ?? 'N/A')
+            ->addColumn('customer_phone', fn($inv) => $inv->customer->phone ?? 'N/A')
+            ->addColumn('total_paid', fn($inv) => number_format($inv->total_paid, 2))
+            ->addColumn('outstanding_balance', fn($inv) => number_format($inv->outstanding_balance, 2))
+            ->addColumn('delivery_status_badge', function ($inv) {
+                $badges = [
+                    'pending' => '<span class="badge badge-warning">Pending</span>',
+                    'partial' => '<span class="badge badge-info">Partial</span>',
+                    'delivered' => '<span class="badge badge-success">Delivered</span>',
+                ];
+                return $badges[$inv->delivery_status] ?? '<span class="badge badge-secondary">Unknown</span>';
+            })
+            ->addColumn('action', fn($inv) => view('sales.partials.actions', ['invoice' => $inv])->render())
+            ->editColumn('invoice_date', fn($inv) => $inv->invoice_date->format('d M Y'))
+            ->editColumn('total_amount', fn($inv) => number_format($inv->total_amount, 2))
+            ->filterColumn('customer_name', fn($q, $kw) => $q->whereHas('customer', fn($sq) => $sq->where('name', 'like', "%{$kw}%")))
+            ->filterColumn('customer_phone', fn($q, $kw) => $q->whereHas('customer', fn($sq) => $sq->where('phone', 'like', "%{$kw}%")))
+            ->rawColumns(['action', 'delivery_status_badge'])
+            ->make(true);
     }
 
     /**
@@ -78,7 +86,6 @@ class SalesController extends Controller
 
     /**
      * Store new invoice
-     * Fixed: Using StoreInvoiceRequest for proper validation
      */
     public function store(StoreInvoiceRequest $request): JsonResponse
     {
@@ -87,7 +94,6 @@ class SalesController extends Controller
 
             $invoice = $this->invoiceService->createInvoice($request->validated());
 
-            // Sync to customer ledger
             if ($invoice && $invoice->transaction_id) {
                 $transaction = Transaction::find($invoice->transaction_id);
                 if ($transaction) {
@@ -148,7 +154,6 @@ class SalesController extends Controller
                 ->with('error', 'Cannot edit deleted invoice');
         }
 
-        // Check if invoice has deliveries - prevent editing if delivered
         if ($invoice->delivery_status !== 'pending') {
             return redirect()->route('sales.show', $invoice)
                 ->with('warning', 'Cannot edit invoice with deliveries. Create a credit note instead.');
@@ -164,11 +169,9 @@ class SalesController extends Controller
 
     /**
      * Update invoice
-     * Fixed: Using UpdateInvoiceRequest for proper validation
      */
     public function update(UpdateInvoiceRequest $request, Invoice $invoice): JsonResponse
     {
-        // Prevent editing delivered invoices
         if ($invoice->delivery_status !== 'pending') {
             return response()->json([
                 'success' => false,
@@ -179,10 +182,8 @@ class SalesController extends Controller
         try {
             DB::beginTransaction();
 
-            // Delete old invoice and create new one (safer for accounting)
             $oldInvoiceNumber = $invoice->invoice_number;
 
-            // Delete customer ledger entries for old transaction
             if ($invoice->transaction_id) {
                 $oldTransaction = Transaction::find($invoice->transaction_id);
                 if ($oldTransaction) {
@@ -191,11 +192,8 @@ class SalesController extends Controller
             }
 
             $this->invoiceService->deleteInvoice($invoice, auth()->id());
-
-            // Create new invoice with same number logic
             $newInvoice = $this->invoiceService->createInvoice($request->validated());
 
-            // Sync new transaction to customer ledger
             if ($newInvoice->transaction_id) {
                 $transaction = Transaction::find($newInvoice->transaction_id);
                 if ($transaction) {
@@ -231,26 +229,16 @@ class SalesController extends Controller
      */
     public function destroy(Invoice $invoice): JsonResponse
     {
-        // Prevent deleting delivered invoices
         if ($invoice->delivery_status !== 'pending') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete invoice with deliveries. Reverse deliveries first.',
-            ], 422);
-        }
-
-        // Prevent deleting invoices with payments
-        if ($invoice->payments()->exists()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cannot delete invoice with payments. Delete payments first.',
+                'message' => 'Cannot delete invoice with deliveries',
             ], 422);
         }
 
         try {
             DB::beginTransaction();
 
-            // Delete customer ledger entries
             if ($invoice->transaction_id) {
                 $transaction = Transaction::find($invoice->transaction_id);
                 if ($transaction) {
@@ -293,29 +281,160 @@ class SalesController extends Controller
         return view('sales.print', compact('invoice'));
     }
 
+    // ============================================
+    // AJAX ENDPOINTS FOR SELECT2 & SIDEBAR
+    // ============================================
+
     /**
-     * Get customer balance for AJAX
+     * Search customers for Select2 (by name, code, or phone)
      */
-    public function getCustomerBalance(Customer $customer): JsonResponse
+    public function searchCustomers(Request $request): JsonResponse
     {
+        $search = $request->get('q', '');
+        $page = $request->get('page', 1);
+        $perPage = 20;
+
+        $query = Customer::where('is_active', true);
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('customer_code', 'LIKE', "%{$search}%")
+                  ->orWhere('phone', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $total = $query->count();
+
+        $customers = $query->orderBy('name')
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $results = $customers->map(function ($customer) {
+            $balance = $customer->current_balance;
+            $balanceFormatted = number_format(abs($balance), 2);
+            $balanceLabel = $balance >= 0 ? 'Dr' : 'Cr';
+
+            return [
+                'id' => $customer->id,
+                'text' => $customer->name . ' | ' . $customer->phone,
+                'customer_code' => $customer->customer_code,
+                'name' => $customer->name,
+                'phone' => $customer->phone ?? '-',
+                'balance' => $balanceFormatted . ' ' . $balanceLabel,
+            ];
+        });
+
         return response()->json([
-            'success' => true,
-            'balance' => $customer->current_balance,
-            'formatted' => $customer->formatted_balance,
-            'credit_limit' => $customer->credit_limit,
-            'available_credit' => $customer->available_credit,
-            'is_overdue' => $customer->is_overdue,
+            'results' => $results,
+            'pagination' => [
+                'more' => ($page * $perPage) < $total
+            ]
         ]);
     }
 
     /**
-     * Get product details for AJAX
+     * Search products for Select2 (by name or code)
+     */
+    public function searchProducts(Request $request): JsonResponse
+    {
+        $search = $request->get('q', '');
+        $page = $request->get('page', 1);
+        $perPage = 20;
+
+        $query = Product::where('is_active', true)
+            ->with(['baseUnit', 'alternativeUnits']);
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('code', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $total = $query->count();
+
+        $products = $query->orderBy('name')
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $results = $products->map(function ($product) {
+            return [
+                'id' => $product->id,
+                'text' => $product->name . ($product->code ? ' (' . $product->code . ')' : ''),
+                'name' => $product->name,
+                'code' => $product->code,
+                'stock' => $product->current_stock,
+                'price' => $product->selling_price,
+                'unit' => $product->baseUnit->symbol ?? 'PCS',
+            ];
+        });
+
+        return response()->json([
+            'results' => $results,
+            'pagination' => [
+                'more' => ($page * $perPage) < $total
+            ]
+        ]);
+    }
+
+    /**
+     * Get customer details for sidebar profile
+     */
+    public function getCustomerDetails(Customer $customer): JsonResponse
+    {
+        $customer->load('group');
+
+        $balance = $customer->current_balance;
+        $creditLimit = $customer->credit_limit ?? 0;
+        $creditRemaining = max(0, $creditLimit - $balance);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $customer->id,
+                'customer_code' => $customer->customer_code,
+                'name' => $customer->name,
+                'phone' => $customer->phone ?? '-',
+                'email' => $customer->email ?? '-',
+                'address' => $customer->address ?? '-',
+                'city' => $customer->city ?? '-',
+                'group' => $customer->group->name ?? 'No Group',
+                'outstanding_balance' => $balance,
+                'credit_limit' => $creditLimit,
+                'credit_remaining' => $creditRemaining,
+                'is_overdue' => $customer->is_overdue ?? false,
+            ],
+        ]);
+    }
+
+    /**
+     * Get customer balance (simple balance check)
+     */
+    public function getCustomerBalance(Customer $customer): JsonResponse
+    {
+        $balance = $customer->current_balance;
+        $creditLimit = $customer->credit_limit ?? 0;
+
+        return response()->json([
+            'success' => true,
+            'balance' => $balance,
+            'formatted' => '৳ ' . number_format(abs($balance), 2) . ($balance >= 0 ? ' Dr' : ' Cr'),
+            'credit_limit' => $creditLimit,
+            'available_credit' => max(0, $creditLimit - $balance),
+            'is_overdue' => $customer->is_overdue ?? false,
+        ]);
+    }
+
+    /**
+     * Get product details for line item
      */
     public function getProductDetails(Product $product, Request $request): JsonResponse
     {
         $product->load(['baseUnit', 'alternativeUnits']);
 
-        // Get last rate for customer if provided
         $lastRate = null;
         if ($request->filled('customer_id')) {
             $lastRate = $product->getLastRateForCustomer($request->customer_id);

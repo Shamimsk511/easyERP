@@ -19,11 +19,20 @@ Route::middleware(['auth'])->group(function () {
     // Sales / Invoice Routes
     // ============================================
     Route::prefix('sales')->name('sales.')->group(function () {
-        // AJAX endpoints (before resource routes)
+        
+        // AJAX endpoints (MUST be before resource routes to avoid conflicts)
+        Route::get('search-customers', [SalesController::class, 'searchCustomers'])
+            ->name('search-customers');
+        Route::get('search-products', [SalesController::class, 'searchProducts'])
+            ->name('search-products');
+        Route::get('get-customer/{customer}', [SalesController::class, 'getCustomerDetails'])
+            ->name('get-customer');
         Route::get('customer/{customer}/balance', [SalesController::class, 'getCustomerBalance'])
             ->name('customer.balance');
         Route::get('product/{product}/details', [SalesController::class, 'getProductDetails'])
             ->name('product.details');
+        Route::get('data', [SalesController::class, 'getData'])
+            ->name('data');
 
         // Resource routes
         Route::get('/', [SalesController::class, 'index'])->name('index');
@@ -48,6 +57,7 @@ Route::middleware(['auth'])->group(function () {
 
         // Resource routes
         Route::get('/', [DeliveryController::class, 'index'])->name('index');
+        Route::get('data', [DeliveryController::class, 'getData'])->name('data');
         Route::get('create', [DeliveryController::class, 'create'])->name('create');
         Route::post('/', [DeliveryController::class, 'store'])->name('store');
         Route::get('{delivery}', [DeliveryController::class, 'show'])->name('show');
@@ -65,6 +75,7 @@ Route::middleware(['auth'])->group(function () {
 
         // Resource routes
         Route::get('/', [PaymentController::class, 'index'])->name('index');
+        Route::get('data', [PaymentController::class, 'getData'])->name('data');
         Route::get('create', [PaymentController::class, 'create'])->name('create');
         Route::post('/', [PaymentController::class, 'store'])->name('store');
         Route::get('{payment}', [PaymentController::class, 'show'])->name('show');

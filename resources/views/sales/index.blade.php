@@ -20,7 +20,7 @@
         <h3 class="card-title">Invoice List</h3>
     </div>
     <div class="card-body">
-        <!-- Filter Section -->
+
         <div class="row mb-3">
             <div class="col-md-3">
                 <div class="form-group">
@@ -50,7 +50,6 @@
             </div>
         </div>
 
-        <!-- DataTable -->
         <table id="invoicesTable" class="table table-bordered table-hover table-sm">
             <thead>
                 <tr>
@@ -70,315 +69,96 @@
 </div>
 @stop
 
-@push('js')
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    let rowIndex = 1;
-
-    // ===== CUSTOMER SELECT2 - Using searchCustomers endpoint =====
-    $('#customer_id').select2({
-        theme: 'default',
-        placeholder: 'Type to search customer...',
-        allowClear: true,
-        width: '100%',
-        ajax: {
-            url: '{{ route("sales.search-customers") }}',
-            dataType: 'json',
-            delay: 250,
-            data: function(params) {
-                return {
-                    q: params.term || '',
-                    page: params.page || 1
-                };
-            },
-            processResults: function(data) {
-                console.log('Customer search results:', data);
-                return {
-                    results: data.results || [],
-                    pagination: data.pagination || {}
-                };
-            },
-            cache: true,
-            error: function(xhr, status, error) {
-                console.error('Customer search AJAX error:', {status, error, xhr});
-            }
-        },
-        minimumInputLength: 1,
-        templateResult: function(item) {
-            if (item.loading) {
-                return item.text;
-            }
-            if (!item.id) {
-                return item.text;
-            }
-            return '<div><strong>' + item.name + '</strong><br><small>' + item.customer_code + ' | ' + item.phone + '</small></div>';
-        },
-        templateSelection: function(item) {
-            return item.name || item.text;
-        }
-    });
-
-    // When customer is selected, fetch their details
-    $('#customer_id').on('select2:select', function(e) {
-        const customerId = e.params.data.id;
-        console.log('Customer selected:', customerId);
-        
-        if (!customerId) {
-            $('#customerInfoCard').hide();
-            return;
-        }
-
-        // Fetch customer details using the getCustomerDetails endpoint
-        $.ajax({
-            url: '/sales/get-customer/' + customerId,
-            type: 'GET',
-            dataType: 'json',
-            headers: {
-                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-            },
-            success: function(response) {
-                console.log('Customer details response:', response);
-                
-                if (response.success && response.data) {
-                    const data = response.data;
-                    $('#customerInfoCard').show();
-                    $('#cust-name').text(data.name || '-');
-                    $('#cust-phone').text(data.phone || '-');
-                    $('#cust-city').text(data.city || '-');
-                    $('#cust-outstanding').text('৳ ' + parseFloat(data.outstanding_balance || 0).toFixed(2));
-                } else {
-                    console.error('Invalid response:', response);
-                    Swal.fire('Error', 'Failed to load customer data', 'error');
-                    $('#customerInfoCard').hide();
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Customer details AJAX error:', {status, error, xhr: xhr.responseJSON});
-                Swal.fire('Error', 'Failed to load customer details: ' + error, 'error');
-                $('#customerInfoCard').hide();
-            }
-        });
-    });
-
-    // Hide customer info when no selection
-    $('#customer_id').on('select2:unselect', function() {
-        $('#customerInfoCard').hide();
-    });
-
-    // ===== PRODUCT SELECT2 - Initialize on page load =====
-    function initProductSelect($select) {
-        // Destroy existing Select2 if any
-        if ($select.hasClass('select2-hidden-accessible')) {
-            $select.select2('destroy');
-        }
-        
-        $select.select2({
-            theme: 'default',
-            placeholder: 'Search product...',
-            allowClear: true,
-            width: '100%',
-            ajax: {
-                url: '{{ route("sales.search-products") }}',
-                dataType: 'json',
-                delay: 250,
-                data: function(params) {
-                    return {
-                        q: params.term || '',
-                        customer_id: $('#customer_id').val() || ''
-                    };
-                },
-                processResults: function(data) {
-                    console.log('Product search results:', data);
-                    return {
-                        results: $.map(data, function(item) {
-                            return {
-                                id: item.id,
-                                text: item.text,
-                                data: item
-                            };
-                        })
-                    };
-                },
-                cache: true,
-                error: function(xhr, status, error) {
-                    console.error('Product search error:', {status, error, xhr});
-                }
-            },
-            minimumInputLength: 1,
-            templateResult: function(item) {
-                if (item.loading) {
-                    return item.text;
-                }
-                if (!item.data) {
-                    return item.text;
-                }
-                return '<div><strong>' + item.data.name + '</strong> (' + item.data.code + ')<br>' +
-                       '<small>Stock: ' + (item.data.stock || 0) + ' ' + item.data.unit + 
-                       ' | Price: ৳' + parseFloat(item.data.price || 0).toFixed(2) + '</small></div>';
-            },
-            templateSelection: function(item) {
-                return item.data ? item.data.name : item.text;
-            }
-        });
-
-        // Auto-fill when product selected
-        $select.on('select2:select', function(e) {
-            const product = e.params.data.data;
-            const $row = $select.closest('tr');
-            
-            $row.find('.unit-display').val(product.unit || '');
-            $row.find('.rate').val(parseFloat(product.price || 0).toFixed(2));
-            
-            // Trigger calculation
-            $row.find('.rate').trigger('input');
-            
-            // Focus on quantity field
-            setTimeout(() => {
-                $row.find('.qty').focus();
-            }, 100);
-        });
-    }
-
-    // Initialize all existing product selects
-    $('.product-select').each(function() {
-        initProductSelect($(this));
-    });
-
-    // ===== ADD NEW ROW =====
-    $(document).on('click', '.add-row', function(e) {
-        e.preventDefault();
-        
-        const firstRow = $('#po-items tbody tr').first();
-        const newRow = firstRow.clone();
-        
-        // Clear all inputs
-        newRow.find('input, textarea').val('');
-        newRow.find('.unit-display').val('');
-        
-        // Destroy Select2 from cloned row
-        newRow.find('.select2-container').remove();
-        
-        // Reset select element
-        const select = newRow.find('select');
-        select.removeClass('select2-hidden-accessible')
-              .removeAttr('data-select2-id')
-              .removeAttr('aria-hidden')
-              .removeAttr('tabindex')
-              .show();
-        select.find('option').first().prop('selected', true);
-        
-        // Update field names with new index
-        newRow.find('[name]').each(function() {
-            const name = $(this).attr('name');
-            if (name && name.includes('items')) {
-                const newName = name.replace(/items\[\d+\]/, 'items[' + rowIndex + ']');
-                $(this).attr('name', newName);
-            }
-        });
-        
-        $('#po-items tbody').append(newRow);
-        
-        // Initialize Select2 on new row
-        initProductSelect(newRow.find('.product-select'));
-        rowIndex++;
-    });
-
-    // ===== REMOVE ROW =====
-    $(document).on('click', '.remove-row', function(e) {
-        e.preventDefault();
-        
-        if ($('#po-items tbody tr').length > 1) {
-            $(this).closest('tr').remove();
-            calculateGrandTotal();
-        } else {
-            Swal.fire('Warning', 'At least one product row is required', 'warning');
-        }
-    });
-
-    // ===== CALCULATE ROW AMOUNT =====
-    $(document).on('input', '.qty, .rate', function() {
-        const $row = $(this).closest('tr');
-        const qty = parseFloat($row.find('.qty').val()) || 0;
-        const rate = parseFloat($row.find('.rate').val()) || 0;
-        const amount = qty * rate;
-        
-        $row.find('.amount').val(amount > 0 ? amount.toFixed(2) : '');
-        calculateGrandTotal();
-    });
-
-    function calculateGrandTotal() {
-        let total = 0;
-        $('#po-items tbody tr').each(function() {
-            const amount = parseFloat($(this).find('.amount').val()) || 0;
-            total += amount;
-        });
-        $('#grand-total').val(total.toFixed(2));
-    }
-
-    // ===== FORM SUBMISSION =====
-    $('#purchase-form').on('submit', function(e) {
-        e.preventDefault();
-
-        // Validation
-        if ($('#po-items tbody tr').length === 0) {
-            Swal.fire('Warning', 'Please add at least one product', 'warning');
-            return false;
-        }
-
-        if (!$('#customer_id').val()) {
-            Swal.fire('Warning', 'Please select a customer', 'warning');
-            return false;
-        }
-
-        // Show loading
-        Swal.fire({
-            title: 'Saving...',
-            text: 'Please wait while we save your invoice',
-            allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
-        });
-
-        $.ajax({
-            url: '{{ route("sales.store") }}',
-            method: 'POST',
-            data: $(this).serialize(),
-            success: function(response) {
-                console.log('Create response:', response);
-                
-                if (response.success) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success!',
-                        text: response.message,
-                        timer: 2000,
-                        showConfirmButton: false
-                    }).then(() => {
-                        window.location.href = response.redirect;
-                    });
-                } else {
-                    Swal.fire('Error', response.message || 'Unknown error', 'error');
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Create AJAX error:', {status, error, xhr: xhr.responseJSON});
-                const message = xhr.responseJSON?.message || xhr.responseJSON?.errors || error || 'Failed to create invoice';
-                Swal.fire('Error', message, 'error');
-            }
-        });
-    });
-
-    // Initialize calculations on page load
-    calculateGrandTotal();
-});
-</script>
-@endpush
-
-
-
-@push('css')
+@section('css')
 <style>
-    .table-sm td, .table-sm th {
-        padding: 0.4rem;
+    .select2-container .select2-selection--single {
+        height: 38px !important;
+        border: 1px solid #ced4da !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 36px !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 36px !important;
     }
 </style>
+@stop
+
+@push('js')
+<script>
+$(document).ready(function() {
+    // DataTable initialization
+    const table = $('#invoicesTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: {
+            url: '{{ route("sales.data") }}',
+            data: function(d) {
+                d.delivery_status = $('#filterDelivery').val();
+                d.show_deleted = $('#filterDeleted').val();
+            }
+        },
+        columns: [
+            { data: 'id', name: 'id' },
+            { data: 'invoice_number', name: 'invoice_number' },
+            { data: 'customer_name', name: 'customer_name' },
+            { data: 'invoice_date', name: 'invoice_date' },
+            { data: 'total_amount', name: 'total_amount', className: 'text-right' },
+            { data: 'total_paid', name: 'total_paid', className: 'text-right' },
+            { data: 'outstanding_balance', name: 'outstanding_balance', className: 'text-right' },
+            { data: 'delivery_status_badge', name: 'delivery_status', orderable: false },
+            { data: 'action', name: 'action', orderable: false, searchable: false }
+        ],
+        order: [[0, 'desc']],
+        pageLength: 25,
+        language: {
+            processing: '<i class="fas fa-spinner fa-spin fa-2x"></i>'
+        }
+    });
+
+    // Filter events
+    $('#filterDelivery, #filterDeleted').on('change', function() {
+        table.ajax.reload();
+    });
+
+    // Reset filters
+    $('#resetFilters').on('click', function() {
+        $('#filterDelivery, #filterDeleted').val('');
+        table.ajax.reload();
+    });
+
+    // Delete invoice handler
+    $(document).on('click', '.delete-invoice', function() {
+        const invoiceId = $(this).data('id');
+        
+        Swal.fire({
+            title: 'Delete Invoice?',
+            text: 'This action cannot be undone!',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Yes, delete it!'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                $.ajax({
+                    url: '/sales/' + invoiceId,
+                    type: 'DELETE',
+                    headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                    success: function(response) {
+                        if (response.success) {
+                            Swal.fire('Deleted!', response.message, 'success');
+                            table.ajax.reload();
+                        } else {
+                            Swal.fire('Error', response.message, 'error');
+                        }
+                    },
+                    error: function(xhr) {
+                        Swal.fire('Error', xhr.responseJSON?.message || 'Failed to delete', 'error');
+                    }
+                });
+            }
+        });
+    });
+});
+</script>
 @endpush
