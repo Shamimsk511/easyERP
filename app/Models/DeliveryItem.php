@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DeliveryItem extends Model
 {
@@ -16,12 +17,15 @@ class DeliveryItem extends Model
         'delivered_quantity' => 'decimal:3',
     ];
 
-    public function delivery()
+    /**
+     * Relationships
+     */
+    public function delivery(): BelongsTo
     {
         return $this->belongsTo(Delivery::class);
     }
 
-    public function invoiceItem()
+    public function invoiceItem(): BelongsTo
     {
         return $this->belongsTo(InvoiceItem::class);
     }

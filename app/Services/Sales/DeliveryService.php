@@ -7,6 +7,7 @@ use App\Models\DeliveryItem;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Product;
+use App\Models\Account;
 use App\Models\Transaction;
 use App\Models\TransactionEntry;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ class DeliveryService
 {
     /**
      * Create delivery (challan) for invoice
-     * Adjusts inventory and creates accounting entries
+     * Adjusts inventory and creates accounting entries (COGS)
      */
     public function createDelivery(Invoice $invoice, array $data)
     {
@@ -36,11 +37,17 @@ class DeliveryService
             ]);
 
             // Process delivery items
-            $deliveryAmount = 0;
+            $totalDeliveryAmount = 0;
 
-            foreach ($data['items'] as $itemData) {
-                $invoiceItem = InvoiceItem::find($itemData['invoice_item_id']);
-                $deliveryQty = $itemData['delivered_quantity'];
+            foreach (($data['items'] ?? []) as $itemData) {
+                $invoiceItem = InvoiceItem::findOrFail($itemData['invoice_item_id']);
+                $deliveryQty = (float)$itemData['delivered_quantity'];
+
+                // Validate delivery quantity
+                $remaining = $invoiceItem->quantity - $invoiceItem->delivered_quantity;
+                if ($deliveryQty > $remaining) {
+                    throw new \Exception("Cannot deliver more than {$remaining} units");
+                }
 
                 // Create delivery item record
                 DeliveryItem::create([
@@ -49,9 +56,8 @@ class DeliveryService
                     'delivered_quantity' => $deliveryQty,
                 ]);
 
-                // Update invoice item's delivered quantity
-                $invoiceItem->delivered_quantity += $deliveryQty;
-                $invoiceItem->save();
+                // Update invoice item delivered quantity
+                $invoiceItem->recordDelivery($deliveryQty);
 
                 // Update product stock if product exists
                 if ($invoiceItem->product_id) {
@@ -62,23 +68,28 @@ class DeliveryService
                 }
 
                 // Calculate delivery amount
-                $deliveryAmount += ($invoiceItem->unit_price * $deliveryQty) - 
-                                 (($invoiceItem->unit_price * $deliveryQty * $invoiceItem->discount_percent) / 100);
+                $itemAmount = ($invoiceItem->unit_price * $deliveryQty) - 
+                             (($invoiceItem->unit_price * $deliveryQty * $invoiceItem->discount_percent) / 100);
+                $totalDeliveryAmount += $itemAmount;
             }
 
             // Update invoice delivery status
             $invoice->updateDeliveryStatus();
 
-            // Create accounting transaction for delivery
-            // This records the Cost of Goods Sold and reduces Inventory
-            $this->createDeliveryTransaction($delivery, $invoice, $deliveryAmount);
+            // Create accounting transaction (COGS)
+            $transaction = $this->createDeliveryTransaction($delivery, $invoice, $totalDeliveryAmount);
+
+            // Update delivery with transaction
+            $delivery->update(['transaction_id' => $transaction->id]);
 
             DB::commit();
 
-            Log::info('Delivery created', [
+            Log::info('Delivery created successfully', [
                 'delivery_id' => $delivery->id,
                 'challan_number' => $challanNumber,
                 'invoice_id' => $invoice->id,
+                'amount' => $totalDeliveryAmount,
+                'transaction_id' => $transaction->id,
             ]);
 
             return $delivery;
@@ -97,12 +108,17 @@ class DeliveryService
      */
     private function createDeliveryTransaction(Delivery $delivery, Invoice $invoice, $deliveryAmount)
     {
-        $cogAccount = \App\Models\Account::where('code', '5100')->first(); // COGS - Tiles
-        $inventoryAccount = \App\Models\Account::where('code', '1140')->first(); // Inventory - Tiles
+        // Get COGS and Inventory accounts
+        $cogsAccount = Account::where('type', 'expense')->where('code', '5100')->first();
+        $inventoryAccount = Account::where('type', 'asset')->where('code', '1140')->first();
 
-        if (!$cogAccount || !$inventoryAccount) {
-            Log::warning('COGS or Inventory account not found');
-            return;
+        if (!$cogsAccount || !$inventoryAccount) {
+            Log::warning('COGS or Inventory account not found', [
+                'cogs_account' => $cogsAccount?->code,
+                'inventory_account' => $inventoryAccount?->code,
+            ]);
+            // Create dummy transaction if accounts don't exist
+            return $this->createDummyTransaction($delivery);
         }
 
         $transaction = Transaction::create([
@@ -110,12 +126,14 @@ class DeliveryService
             'reference' => $delivery->challan_number,
             'description' => "Delivery #{$delivery->challan_number} - Invoice #{$invoice->invoice_number}",
             'status' => 'posted',
+            'source_type' => Delivery::class,
+            'source_id' => $delivery->id,
         ]);
 
         // Debit: COGS
         TransactionEntry::create([
             'transaction_id' => $transaction->id,
-            'account_id' => $cogAccount->id,
+            'account_id' => $cogsAccount->id,
             'type' => 'debit',
             'amount' => $deliveryAmount,
             'memo' => "Delivery {$delivery->challan_number}",
@@ -130,10 +148,22 @@ class DeliveryService
             'memo' => "Delivery {$delivery->challan_number}",
         ]);
 
-        $delivery->transaction_id = $transaction->id;
-        $delivery->save();
-
         return $transaction;
+    }
+
+    /**
+     * Create dummy transaction if accounts don't exist
+     */
+    private function createDummyTransaction(Delivery $delivery)
+    {
+        return Transaction::create([
+            'date' => $delivery->delivery_date,
+            'reference' => $delivery->challan_number,
+            'description' => "Delivery #{$delivery->challan_number}",
+            'status' => 'draft',
+            'source_type' => Delivery::class,
+            'source_id' => $delivery->id,
+        ]);
     }
 
     /**
@@ -148,8 +178,7 @@ class DeliveryService
                 $invoiceItem = $deliveryItem->invoiceItem;
                 
                 // Revert delivered quantity
-                $invoiceItem->delivered_quantity -= $deliveryItem->delivered_quantity;
-                $invoiceItem->save();
+                $invoiceItem->reverseDelivery($deliveryItem->delivered_quantity);
 
                 // Restore product stock
                 if ($invoiceItem->product_id) {
@@ -177,9 +206,10 @@ class DeliveryService
 
             DB::commit();
 
-            Log::info('Delivery deleted', [
+            Log::info('Delivery deleted successfully', [
                 'delivery_id' => $delivery->id,
                 'challan_number' => $delivery->challan_number,
+                'invoice_id' => $delivery->invoice_id,
             ]);
 
             return true;
@@ -198,10 +228,10 @@ class DeliveryService
     {
         $lastDelivery = Delivery::withTrashed()->latest('id')->first();
         $lastNumber = $lastDelivery 
-            ? (int)substr($lastDelivery->challan_number, -4) 
+            ? (int)substr($lastDelivery->challan_number, -4)
             : 0;
-        
+
         $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
-        return 'CH' . date('y') . $newNumber; // Format: CH250001, CH250002, etc.
+        return 'CH' . date('y') . $newNumber;
     }
 }

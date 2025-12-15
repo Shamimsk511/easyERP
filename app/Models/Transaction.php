@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class Transaction extends Model
 {
@@ -12,28 +14,39 @@ class Transaction extends Model
 
     protected $fillable = [
         'date',
-         'type',
+        'type',
         'reference',
         'description',
         'notes',
         'status',
+        'source_type',  // Added: Polymorphic source (Invoice::class, Delivery::class, etc.)
+        'source_id',    // Added: ID of the source model
     ];
 
     protected $casts = [
         'date' => 'date',
-        'total_amount' => 'decimal:2',
     ];
 
-    // Remove the boot method that was causing issues
-
-    public function entries()
+    /**
+     * Get all transaction entries (double-entry lines)
+     */
+    public function entries(): HasMany
     {
         return $this->hasMany(TransactionEntry::class);
     }
-      /**
+
+    /**
+     * Get the source model (Invoice, Delivery, Payment, etc.)
+     */
+    public function source(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /**
      * Check if transaction can be edited
      */
-    public function getCanEditAttribute()
+    public function getCanEditAttribute(): bool
     {
         return $this->status === 'draft';
     }
@@ -41,48 +54,81 @@ class Transaction extends Model
     /**
      * Check if transaction can be voided
      */
-    public function getCanVoidAttribute()
+    public function getCanVoidAttribute(): bool
     {
         return $this->status === 'posted';
     }
 
-    public function void()
+    /**
+     * Void this transaction
+     */
+    public function void(): bool
     {
-        $this->update(['status' => 'voided']);
+        return $this->update(['status' => 'voided']);
     }
 
-    public function getTotalDebitAttribute()
+    /**
+     * Get total debit amount
+     */
+    public function getTotalDebitAttribute(): float
     {
-        return $this->entries()->where('type', 'debit')->sum('amount');
+        return (float) $this->entries()->where('type', 'debit')->sum('amount');
     }
 
-    public function getTotalCreditAttribute()
+    /**
+     * Get total credit amount
+     */
+    public function getTotalCreditAttribute(): float
     {
-        return $this->entries()->where('type', 'credit')->sum('amount');
+        return (float) $this->entries()->where('type', 'credit')->sum('amount');
     }
 
-    public function isBalanced()
+    /**
+     * Check if transaction is balanced (debits = credits)
+     */
+    public function isBalanced(): bool
     {
-        return $this->total_debit == $this->total_credit;
+        return abs($this->total_debit - $this->total_credit) < 0.01;
     }
-public function getTotalDebits()
-{
-    return $this->entries()
-        ->where('type', 'debit')
-        ->sum('amount');
-}
 
-public function getTotalCredits()
-{
-    return $this->entries()
-        ->where('type', 'credit')
-        ->sum('amount');
-}
+    /**
+     * Alias methods for compatibility
+     */
+    public function getTotalDebits(): float
+    {
+        return $this->total_debit;
+    }
 
-public function getTotalAmount()
-{
-    return $this->getTotalDebits(); // or getTotalCredits() - they should be equal
-}
+    public function getTotalCredits(): float
+    {
+        return $this->total_credit;
+    }
 
+    public function getTotalAmount(): float
+    {
+        return $this->total_debit;
+    }
 
+    /**
+     * Scopes
+     */
+    public function scopePosted($query)
+    {
+        return $query->where('status', 'posted');
+    }
+
+    public function scopeDraft($query)
+    {
+        return $query->where('status', 'draft');
+    }
+
+    public function scopeOfType($query, string $type)
+    {
+        return $query->where('type', $type);
+    }
+
+    public function scopeForSource($query, string $sourceType, int $sourceId)
+    {
+        return $query->where('source_type', $sourceType)->where('source_id', $sourceId);
+    }
 }

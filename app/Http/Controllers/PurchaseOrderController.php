@@ -3,427 +3,198 @@
 namespace App\Http\Controllers;
 
 use App\Models\Vendor;
-use App\Models\Account;
 use App\Models\Product;
-use App\Models\Transaction;
-use Illuminate\Http\Request;
+use App\Models\Account;
 use App\Models\PurchaseOrder;
-use App\Models\ProductMovement;
-use App\Models\TransactionEntry;
-use Yajra\DataTables\DataTables;
 use App\Models\PurchaseOrderItem;
+use App\Models\Transaction;
+use App\Models\TransactionEntry;
+use App\Models\ProductMovement;
+use App\Http\Requests\StorePurchaseOrderRequest;
+use App\Http\Requests\UpdatePurchaseOrderRequest;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Yajra\DataTables\Facades\DataTables;
 
 class PurchaseOrderController extends Controller
 {
-public function index(Request $request)
-{
-    if ($request->ajax()) {
-        $query = PurchaseOrder::with('vendor')->select('purchase_orders.*');
-        
-        // ADD THIS: Filter by status
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
+    /**
+     * Display listing with DataTables
+     */
+    public function index(Request $request)
+    {
+        if ($request->ajax()) {
+            $query = PurchaseOrder::with(['vendor', 'items', 'purchaseAccount'])
+                ->select('purchase_orders.*');
+
+            return DataTables::eloquent($query)
+                ->addColumn('vendor_name', fn($po) => $po->vendor->name ?? 'N/A')
+                ->addColumn('items_count', fn($po) => $po->items->count() . ' items')
+                ->addColumn('status_badge', function ($po) {
+                    $badges = [
+                        'pending' => '<span class="badge badge-warning">Pending</span>',
+                        'received' => '<span class="badge badge-success">Received</span>',
+                    ];
+                    return $badges[$po->status] ?? '<span class="badge badge-secondary">Unknown</span>';
+                })
+                ->addColumn('action', function ($po) {
+                    return view('purchase-orders.partials.actions', ['order' => $po])->render();
+                })
+                ->editColumn('order_date', fn($po) => $po->order_date->format('d M Y'))
+                ->editColumn('total_amount', fn($po) => '৳ ' . number_format($po->total_amount, 2))
+                ->filterColumn('vendor_name', function ($query, $keyword) {
+                    $query->whereHas('vendor', fn($q) => $q->where('name', 'like', "%{$keyword}%"));
+                })
+                ->rawColumns(['status_badge', 'action'])
+                ->make(true);
         }
-        
-        return DataTables::of($query)  // Change $data to $query
-            ->addIndexColumn()
-            ->addColumn('vendor_name', function ($row) {
-                return $row->vendor ? $row->vendor->name : '-';
-            })
-            ->addColumn('order_date_formatted', function ($row) {
-                // Fix: Check if it's already a string or convert from Carbon
-                if (is_string($row->order_date)) {
-                    return \Carbon\Carbon::parse($row->order_date)->format('d M Y');
-                }
-                return $row->order_date ? $row->order_date->format('d M Y') : '-';
-            })
-            ->addColumn('status_badge', function ($row) {
-                if ($row->status === 'received') {
-                    return '<span class="badge badge-success"><i class="fas fa-check-circle"></i> Received</span>';
-                }
-                return '<span class="badge badge-warning"><i class="fas fa-clock"></i> Pending</span>';
-            })
-            ->addColumn('amount_formatted', function ($row) {
-                return '৳ ' . number_format($row->total_amount, 2);
-            })
-            ->addColumn('action', function ($row) {
-                $viewBtn = '<a href="' . route('purchase-orders.show', $row->id) . '" class="btn btn-info btn-sm" title="View"><i class="fas fa-eye"></i></a>';
-                $editBtn = '';
-                $receiveBtn = '';
-                $deleteBtn = '';
-                
-                // Only show edit and delete for pending orders
-                if ($row->status === 'pending') {
-                    $editBtn = '<a href="' . route('purchase-orders.edit', $row->id) . '" class="btn btn-primary btn-sm" title="Edit"><i class="fas fa-edit"></i></a>';
-                    $deleteBtn = '<button type="button" class="btn btn-danger btn-sm delete-btn" data-id="' . $row->id . '" title="Delete"><i class="fas fa-trash"></i></button>';
-                    
-                    // Safe vendor name retrieval
-                    $vendorName = $row->vendor ? e($row->vendor->name) : 'N/A';
-                    
-                    // Add "Mark as Received" button
-                    $receiveBtn = '<button type="button" class="btn btn-success btn-sm receive-btn" data-id="' . $row->id . '" data-vendor="' . $vendorName . '" data-amount="' . number_format($row->total_amount, 2) . '" title="Mark as Received"><i class="fas fa-check-circle"></i> Receive</button>';
-                }
-                
-                return '<div class="btn-group">' . $viewBtn . ' ' . $receiveBtn . ' ' . $editBtn . ' ' . $deleteBtn . '</div>';
-            })
-            ->rawColumns(['status_badge', 'action'])
-            ->make(true);
+
+        return view('purchase-orders.index');
     }
 
-    return view('purchase_orders.index');
-}
-
-
-
- public function create(Request $request)
+    /**
+     * Show create form
+     */
+    public function create()
     {
-        $vendors = Vendor::where('is_active', true)->orderBy('name')->get();
-        $products = Product::where('is_active', true)->orderBy('name')->get();
-        
-        // Get expense accounts for purchase account selection
+        $vendors = Vendor::active()->orderBy('name')->get();
+        $products = Product::active()->with(['baseUnit', 'alternativeUnits'])->orderBy('name')->get();
         $purchaseAccounts = Account::where('type', 'expense')
-            ->where('is_active', true)
-            ->orderBy('code')
+            ->where(fn($q) => $q->where('code', 'like', '5%')->orWhere('name', 'like', '%purchase%'))
+            ->active()
             ->get();
-        
-        // Get default purchase account (code 5100 or first expense account)
-        $defaultPurchaseAccount = Account::where('code', '5100')->first() 
-            ?? $purchaseAccounts->first();
-        
-        return view('purchase_orders.create', compact('vendors', 'products', 'purchaseAccounts', 'defaultPurchaseAccount'));
-    }
 
-    // public function store(Request $request)
-    // {
-    //     $validated = $request->validate([
-    //         'vendor_id' => 'required|exists:vendors,id',
-    //         'purchase_account_id' => 'required|exists:accounts,id',
-    //         'order_date' => 'required|date',
-    //         'items.*.product_id' => 'required|exists:products,id',
-    //         'items.*.quantity' => 'required|numeric|min:0.001',
-    //         'items.*.rate' => 'required|numeric|min:0.01',
-    //         'notes' => 'nullable|string',
-    //     ]);
-
-    //     DB::beginTransaction();
-    //     try {
-    //         // Create purchase order
-    //         $order = PurchaseOrder::create([
-    //             'vendor_id' => $validated['vendor_id'],
-    //             'purchase_account_id' => $validated['purchase_account_id'],
-    //             'order_number' => 'PO-' . now()->format('Ymd') . '-' . str_pad(PurchaseOrder::count() + 1, 4, '0', STR_PAD_LEFT),
-    //             'order_date' => $validated['order_date'],
-    //             'status' => 'pending',
-    //             'notes' => $validated['notes'] ?? null,
-    //             'total_amount' => collect($validated['items'])->sum(function($item) {
-    //                 return $item['quantity'] * $item['rate'];
-    //             }),
-    //         ]);
-
-    //         // Create order items
-    //         foreach ($validated['items'] as $item) {
-    //             PurchaseOrderItem::create([
-    //                 'purchase_order_id' => $order->id,
-    //                 'product_id' => $item['product_id'],
-    //                 'quantity' => $item['quantity'],
-    //                 'rate' => $item['rate'],
-    //                 'amount' => $item['quantity'] * $item['rate'],
-    //             ]);
-    //         }
-
-    //         DB::commit();
-    //         return response()->json(['success' => true, 'data' => $order]);
-            
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         Log::error('Purchase order creation failed: ' . $e->getMessage());
-    //         return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-    //     }
-    // }
-
-
-    /**
-     * Mark purchase order as received and create accounting entries
-     */
-public function markAsReceived(PurchaseOrder $order)
-    {
-        if ($order->status == 'received') {
-            return response()->json([
-                'success' => false,
-                'error' => 'Already marked as received',
-            ], 422);
-        }
-
-        DB::beginTransaction();
-        try {
-            // Update order status
-            $order->status = 'received';
-            $order->received_date = now();
-            $order->save();
-
-            // 1. Update stock for all items AND log movements
-            foreach ($order->items as $item) {
-                $product = $item->product;
-
-                // Get current stock before update (handle null)
-                $stockBefore = $product->currentstock ?? 0;
-
-                // Item quantity is stored in base unit already
-                // If it was recorded with alternative unit, conversion happened at entry time
-                $quantityInBase = $item->quantity;
-
-                // Calculate new stock
-                $newStock = $stockBefore + $quantityInBase;
-
-                // Update product stock
-                $product->update(['currentstock' => $newStock]);
-
-                // Log the movement with conversion info
-                $conversionNote = "Purchase from {$order->vendor->name} - Order #{$order->order_number}";
-
-                ProductMovement::create([
-                    'product_id' => $product->id,
-                    'type' => 'purchase',
-                    'reference_type' => 'PurchaseOrder',
-                    'reference_id' => $order->id,
-                    'quantity' => $quantityInBase,
-                    'rate' => $item->rate,
-                    'stock_before' => $stockBefore,
-                    'stock_after' => $newStock,
-                    'movement_date' => $order->received_date ?? now(),
-                    'notes' => $conversionNote,
-                    'created_by' => auth()->id(),
-                ]);
-
-                Log::info("Stock updated for product {$product->name}", [
-                    'before' => $stockBefore,
-                    'added' => $quantityInBase,
-                    'after' => $newStock,
-                ]);
-            }
-
-            // 2. Create double-entry accounting transaction
-            $vendor = $order->vendor;
-            if (!$vendor->ledger_account_id) {
-                throw new \Exception('Vendor does not have a ledger account. Please update vendor settings.');
-            }
-
-            // Use the selected purchase account from the order
-            $purchaseAccount = $order->purchaseAccount;
-            if (!$purchaseAccount) {
-                throw new \Exception('Purchase account not found for this order.');
-            }
-
-            // Create transaction
-            $transaction = Transaction::create([
-                'date' => $order->received_date ?? now(),
-                'type' => 'purchase',
-                'reference' => $order->order_number,
-                'description' => "Purchase from {$vendor->name} - {$order->order_number}",
-                'notes' => $order->notes,
-                'status' => 'posted',
-            ]);
-
-            // Dr. Purchase Account (Expense increases)
-            TransactionEntry::create([
-                'transaction_id' => $transaction->id,
-                'account_id' => $purchaseAccount->id,
-                'amount' => $order->total_amount,
-                'type' => 'debit',
-                'memo' => "Purchase - {$order->order_number}",
-            ]);
-
-            // Cr. Vendor Account (Liability increases - we owe vendor)
-            TransactionEntry::create([
-                'transaction_id' => $transaction->id,
-                'account_id' => $vendor->ledger_account_id,
-                'amount' => $order->total_amount,
-                'type' => 'credit',
-                'memo' => "Payable to {$vendor->name}",
-            ]);
-
-            // Link transaction to purchase order
-            $order->transaction_id = $transaction->id;
-            $order->save();
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Purchase order marked as received successfully! Stock updated and accounting entry created.',
-                'data' => $order->fresh('vendor', 'items.product', 'transaction'),
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Mark as received failed', [
-                'order_id' => $order->id,
-                'trace' => $e->getTraceAsString(),
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'error' => $e->getMessage(),
-            ], 500);
-        }
+        return view('purchase-orders.create', compact('vendors', 'products', 'purchaseAccounts'));
     }
 
     /**
-     * Store purchase order with alternative unit conversion
+     * Store new purchase order
+     * Fixed: Using StorePurchaseOrderRequest
      */
-    public function store(Request $request)
+    public function store(StorePurchaseOrderRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'vendor_id' => 'required|exists:vendors,id',
-            'purchase_account_id' => 'required|exists:accounts,id',
-            'order_date' => 'required|date',
-            'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|numeric|min:0.001',
-            'items.*.rate' => 'required|numeric|min:0.01',
-            'items.*.unit_id' => 'nullable|exists:units,id',
-            'notes' => 'nullable|string',
-        ]);
-
         DB::beginTransaction();
+
         try {
-            // Process quantities - convert to base unit if alternative unit provided
-            $processedItems = [];
-            $totalAmount = 0;
+            $validated = $request->validated();
 
-            foreach ($validated['items'] as $item) {
-                $product = Product::with('alternativeUnits', 'baseUnit')
-                    ->findOrFail($item['product_id']);
+            // Generate order number
+            $orderNumber = PurchaseOrder::generateOrderNumber();
 
-                $quantityInBase = $item['quantity'];
-                $unitId = $item['unit_id'] ?? $product->base_unit_id;
-
-                // If alternative unit provided, convert to base unit
-                if ($unitId != $product->base_unit_id) {
-                    $altUnit = $product->alternativeUnits()
-                        ->where('unit_id', $unitId)
-                        ->first();
-
-                    if (!$altUnit) {
-                        throw new \Exception("Unit not configured for product {$product->name}");
-                    }
-
-                    $conversionFactor = $altUnit->pivot->conversion_factor;
-                    $quantityInBase = $item['quantity'] * $conversionFactor;
-                }
-
-                $amount = $quantityInBase * $item['rate'];
-                $totalAmount += $amount;
-
-                $processedItems[] = [
-                    'product_id' => $item['product_id'],
-                    'quantity' => $quantityInBase, // Store in base unit
-                    'rate' => $item['rate'],
-                    'amount' => $amount,
-                ];
-            }
+            // Calculate total
+            $totalAmount = collect($validated['items'])->sum('amount');
 
             // Create purchase order
             $order = PurchaseOrder::create([
                 'vendor_id' => $validated['vendor_id'],
-                'purchase_account_id' => $validated['purchase_account_id'],
-                'order_number' => 'PO-' . now()->format('Ymd') . '-' . str_pad(PurchaseOrder::count() + 1, 4, '0', STR_PAD_LEFT),
+                'purchase_account_id' => $validated['purchase_account_id'] ?? null,
+                'order_number' => $orderNumber,
                 'order_date' => $validated['order_date'],
                 'status' => 'pending',
                 'notes' => $validated['notes'] ?? null,
                 'total_amount' => $totalAmount,
             ]);
 
-            // Create order items
-            foreach ($processedItems as $item) {
-                $order->items()->create($item);
+            // Create items
+            foreach ($validated['items'] as $item) {
+                PurchaseOrderItem::create([
+                    'purchase_order_id' => $order->id,
+                    'product_id' => $item['product_id'],
+                    'unit_id' => $item['unit_id'] ?? null,
+                    'description' => $item['description'] ?? null,
+                    'quantity' => $item['quantity'],
+                    'received_quantity' => 0,
+                    'rate' => $item['rate'],
+                    'amount' => $item['amount'],
+                ]);
             }
 
             DB::commit();
 
+            Log::info('Purchase order created', [
+                'order_id' => $order->id,
+                'order_number' => $orderNumber,
+                'vendor_id' => $order->vendor_id,
+                'total' => $totalAmount,
+            ]);
+
             return response()->json([
                 'success' => true,
-                'data' => $order,
+                'message' => 'Purchase order created successfully!',
+                'data' => $order->load(['vendor', 'items.product']),
+                'redirect_url' => route('purchase-orders.show', $order->id),
             ]);
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Purchase order creation failed: ' . $e->getMessage());
 
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage(),
+                'message' => 'Error creating purchase order: ' . $e->getMessage(),
             ], 500);
         }
     }
 
-
-
-    public function destroy(PurchaseOrder $purchaseOrder)
-    {
-        try {
-            // Only allow deletion of pending orders
-            if ($purchaseOrder->status !== 'pending') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Only pending purchase orders can be deleted. This order has already been received.'
-                ], 422);
-            }
-
-            DB::beginTransaction();
-            
-            // Delete items first
-            $purchaseOrder->items()->delete();
-            
-            // Delete the order
-            $purchaseOrder->delete();
-            
-            DB::commit();
-
-            return response()->json(['success' => true, 'message' => 'Purchase order deleted successfully.']);
-            
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Error deleting purchase order: ' . $e->getMessage()], 500);
-        }
-    }
-
+    /**
+     * Show purchase order details
+     */
     public function show(PurchaseOrder $purchaseOrder)
     {
-        $purchaseOrder->load('vendor', 'items.product');
-        return view('purchase_orders.show', compact('purchaseOrder'));
-    }
-
-    public function edit(PurchaseOrder $purchaseOrder)
-    {
-        $purchaseOrder->load('vendor', 'items.product');
-        $vendors = Vendor::where('is_active', true)->get();
-        $products = Product::where('is_active', true)->get();
-        
-        return view('purchase_orders.edit', compact('purchaseOrder', 'vendors', 'products'));
-    }
-
-    public function update(Request $request, PurchaseOrder $purchaseOrder)
-    {
-        $validated = $request->validate([
-            'vendor_id' => 'required|exists:vendors,id',
-            'order_date' => 'required|date',
-            'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|numeric|min:1',
-            'items.*.rate' => 'required|numeric|min:0.01',
-            'notes' => 'nullable|string',
+        $purchaseOrder->load([
+            'vendor',
+            'items.product.baseUnit',
+            'items.unit',
+            'purchaseAccount',
+            'transaction.entries.account',
         ]);
 
+        return view('purchase-orders.show', ['order' => $purchaseOrder]);
+    }
+
+    /**
+     * Show edit form
+     */
+    public function edit(PurchaseOrder $purchaseOrder)
+    {
+        if ($purchaseOrder->status !== 'pending') {
+            return redirect()->route('purchase-orders.show', $purchaseOrder)
+                ->with('error', 'Cannot edit a received purchase order.');
+        }
+
+        $purchaseOrder->load(['items.product', 'items.unit']);
+        $vendors = Vendor::active()->orderBy('name')->get();
+        $products = Product::active()->with(['baseUnit', 'alternativeUnits'])->orderBy('name')->get();
+        $purchaseAccounts = Account::where('type', 'expense')->active()->get();
+
+        return view('purchase-orders.edit', [
+            'order' => $purchaseOrder,
+            'vendors' => $vendors,
+            'products' => $products,
+            'purchaseAccounts' => $purchaseAccounts,
+        ]);
+    }
+
+    /**
+     * Update purchase order
+     * Fixed: Using UpdatePurchaseOrderRequest
+     */
+    public function update(UpdatePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): JsonResponse
+    {
         DB::beginTransaction();
+
         try {
-            // Update purchase order
+            $validated = $request->validated();
+
+            // Update order
             $purchaseOrder->update([
                 'vendor_id' => $validated['vendor_id'],
+                'purchase_account_id' => $validated['purchase_account_id'] ?? null,
                 'order_date' => $validated['order_date'],
                 'notes' => $validated['notes'] ?? null,
-                'total_amount' => collect($validated['items'])->sum(function($item) {
-                    return $item['quantity'] * $item['rate'];
-                }),
+                'total_amount' => $validated['total_amount'],
             ]);
 
             // Delete old items
@@ -434,18 +205,251 @@ public function markAsReceived(PurchaseOrder $order)
                 PurchaseOrderItem::create([
                     'purchase_order_id' => $purchaseOrder->id,
                     'product_id' => $item['product_id'],
+                    'unit_id' => $item['unit_id'] ?? null,
+                    'description' => $item['description'] ?? null,
                     'quantity' => $item['quantity'],
+                    'received_quantity' => 0,
                     'rate' => $item['rate'],
-                    'amount' => $item['quantity'] * $item['rate'],
+                    'amount' => $item['amount'],
                 ]);
             }
 
             DB::commit();
-            return response()->json(['success' => true, 'data' => $purchaseOrder]);
-            
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Purchase order updated successfully!',
+                'data' => $purchaseOrder->fresh(['vendor', 'items.product']),
+            ]);
+
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+            Log::error('Purchase order update failed: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating purchase order: ' . $e->getMessage(),
+            ], 500);
         }
+    }
+
+    /**
+     * Delete purchase order
+     */
+    public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
+    {
+        if ($purchaseOrder->status === 'received') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot delete a received purchase order.',
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $purchaseOrder->items()->delete();
+            $purchaseOrder->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Purchase order deleted successfully!',
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Error deleting purchase order: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Mark purchase order as received
+     * - Updates stock for all items
+     * - Creates product movements
+     * - Creates double-entry accounting transaction
+     */
+    public function markAsReceived(PurchaseOrder $purchaseOrder): JsonResponse
+    {
+        if ($purchaseOrder->status === 'received') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This purchase order has already been received.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            // Update PO status
+            $purchaseOrder->update([
+                'status' => 'received',
+                'received_date' => now(),
+            ]);
+
+            // Process each item
+            foreach ($purchaseOrder->items as $item) {
+                $product = $item->product;
+                $stockBefore = (float) ($product->current_stock ?? 0);
+                $quantityReceived = (float) $item->quantity;
+                $stockAfter = $stockBefore + $quantityReceived;
+
+                // Update product stock
+                $product->update(['current_stock' => $stockAfter]);
+
+                // Update item received quantity
+                $item->update(['received_quantity' => $quantityReceived]);
+
+                // Create product movement
+                ProductMovement::create([
+                    'product_id' => $product->id,
+                    'type' => 'purchase',
+                    'reference_type' => PurchaseOrder::class,
+                    'reference_id' => $purchaseOrder->id,
+                    'quantity' => $quantityReceived,
+                    'rate' => $item->rate,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockAfter,
+                    'movement_date' => $purchaseOrder->received_date ?? now(),
+                    'notes' => "Purchase from {$purchaseOrder->vendor->name} - Order #{$purchaseOrder->order_number}",
+                    'created_by' => auth()->id(),
+                ]);
+
+                Log::info("Stock updated for product", [
+                    'product' => $product->name,
+                    'before' => $stockBefore,
+                    'added' => $quantityReceived,
+                    'after' => $stockAfter,
+                ]);
+            }
+
+            // Create accounting transaction
+            $transaction = $this->createPurchaseTransaction($purchaseOrder);
+
+            // Link transaction to PO
+            $purchaseOrder->update(['transaction_id' => $transaction->id]);
+
+            DB::commit();
+
+            Log::info('Purchase order received', [
+                'order_id' => $purchaseOrder->id,
+                'order_number' => $purchaseOrder->order_number,
+                'transaction_id' => $transaction->id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Purchase order marked as received! Stock updated and accounting entry created.',
+                'data' => $purchaseOrder->fresh(['vendor', 'items.product', 'transaction']),
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Mark as received failed', [
+                'order_id' => $purchaseOrder->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error receiving purchase order: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Create double-entry accounting transaction for purchase
+     * Debit: Purchase Account (Expense) or Inventory Account (Asset)
+     * Credit: Vendor Account (Liability - we owe them)
+     */
+    private function createPurchaseTransaction(PurchaseOrder $order): Transaction
+    {
+        $vendor = $order->vendor;
+
+        if (!$vendor->ledger_account_id) {
+            throw new \Exception('Vendor does not have a ledger account.');
+        }
+
+        // Get purchase account
+        $purchaseAccount = $order->purchaseAccount
+            ?? Account::where('type', 'expense')->where('code', 'like', '5100%')->first()
+            ?? Account::where('type', 'expense')->first();
+
+        if (!$purchaseAccount) {
+            throw new \Exception('Purchase expense account not found.');
+        }
+
+        $transaction = Transaction::create([
+            'date' => $order->received_date ?? now(),
+            'type' => 'purchase',
+            'reference' => $order->order_number,
+            'description' => "Purchase from {$vendor->name} - {$order->order_number}",
+            'notes' => $order->notes,
+            'status' => 'posted',
+            'source_type' => PurchaseOrder::class,
+            'source_id' => $order->id,
+        ]);
+
+        // Debit: Purchase Account (Expense increases)
+        TransactionEntry::create([
+            'transaction_id' => $transaction->id,
+            'account_id' => $purchaseAccount->id,
+            'type' => 'debit',
+            'amount' => $order->total_amount,
+            'memo' => "Purchase - {$order->order_number}",
+        ]);
+
+        // Credit: Vendor Account (Liability increases - we owe vendor)
+        TransactionEntry::create([
+            'transaction_id' => $transaction->id,
+            'account_id' => $vendor->ledger_account_id,
+            'type' => 'credit',
+            'amount' => $order->total_amount,
+            'memo' => "Payable to {$vendor->name}",
+        ]);
+
+        return $transaction;
+    }
+
+    /**
+     * Print purchase order
+     */
+    public function print(PurchaseOrder $purchaseOrder)
+    {
+        $purchaseOrder->load(['vendor', 'items.product.baseUnit', 'items.unit']);
+
+        return view('purchase-orders.print', ['order' => $purchaseOrder]);
+    }
+
+    /**
+     * Get vendor purchase history (AJAX)
+     */
+    public function getVendorHistory(Vendor $vendor): JsonResponse
+    {
+        $orders = $vendor->purchaseOrders()
+            ->with('items')
+            ->orderBy('order_date', 'desc')
+            ->limit(10)
+            ->get()
+            ->map(fn($order) => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'order_date' => $order->order_date->format('d M Y'),
+                'status' => $order->status,
+                'total' => number_format($order->total_amount, 2),
+                'items_count' => $order->items->count(),
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'orders' => $orders,
+            'total_orders' => $vendor->purchaseOrders()->count(),
+            'total_amount' => number_format($vendor->total_purchases, 2),
+        ]);
     }
 }

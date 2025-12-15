@@ -2,40 +2,73 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SalesController;
+use App\Http\Controllers\DeliveryController;
 use App\Http\Controllers\PaymentController;
-use App\Http\Controllers\InvoicePaymentController;
+
+/*
+|--------------------------------------------------------------------------
+| Sales Module Routes
+|--------------------------------------------------------------------------
+| Include this file in your main routes/web.php:
+| require __DIR__.'/sales.php';
+*/
 
 Route::middleware(['auth'])->group(function () {
-    
-    // ============================================
-    // AJAX Endpoints (must be BEFORE model binding)
-    // ============================================
-    Route::get('sales/search-customers', [SalesController::class, 'searchCustomers'])
-        ->name('sales.search-customers');
-    Route::get('sales/search-products', [SalesController::class, 'searchProducts'])
-        ->name('sales.search-products');
-    Route::post('sales/quick-add-customer', [SalesController::class, 'quickAddCustomer'])
-        ->name('sales.quick-add-customer');
-    Route::get('sales/customer/{customerId}', [SalesController::class, 'getCustomerDetails'])->name('sales.get-customer');
 
-     // ========= Sales / Invoices =========
-    Route::prefix('sales')->group(function () {
-        Route::get('/', [SalesController::class, 'index'])->name('sales.index');
-        Route::get('create', [SalesController::class, 'create'])->name('sales.create');
-        Route::post('/', [SalesController::class, 'store'])->name('sales.store');
-        Route::get('{invoice}', [SalesController::class, 'show'])->name('sales.show');
-        Route::get('{invoice}/edit', [SalesController::class, 'edit'])->name('sales.edit');
-        Route::put('{invoice}', [SalesController::class, 'update'])->name('sales.update');
-        Route::delete('{invoice}', [SalesController::class, 'destroy'])->name('sales.destroy');
+    // ============================================
+    // Sales / Invoice Routes
+    // ============================================
+    Route::prefix('sales')->name('sales.')->group(function () {
+        // AJAX endpoints (before resource routes)
+        Route::get('customer/{customer}/balance', [SalesController::class, 'getCustomerBalance'])
+            ->name('customer.balance');
+        Route::get('product/{product}/details', [SalesController::class, 'getProductDetails'])
+            ->name('product.details');
+
+        // Resource routes
+        Route::get('/', [SalesController::class, 'index'])->name('index');
+        Route::get('create', [SalesController::class, 'create'])->name('create');
+        Route::post('/', [SalesController::class, 'store'])->name('store');
+        Route::get('{invoice}', [SalesController::class, 'show'])->name('show');
+        Route::get('{invoice}/edit', [SalesController::class, 'edit'])->name('edit');
+        Route::put('{invoice}', [SalesController::class, 'update'])->name('update');
+        Route::delete('{invoice}', [SalesController::class, 'destroy'])->name('destroy');
+        Route::get('{invoice}/print', [SalesController::class, 'print'])->name('print');
     });
+
+    // ============================================
+    // Delivery / Challan Routes
+    // ============================================
+    Route::prefix('deliveries')->name('deliveries.')->group(function () {
+        // AJAX endpoints
+        Route::get('invoice/{invoice}/pending-items', [DeliveryController::class, 'getPendingItems'])
+            ->name('pending-items');
+        Route::post('invoice/{invoice}/quick-deliver', [DeliveryController::class, 'quickDeliver'])
+            ->name('quick-deliver');
+
+        // Resource routes
+        Route::get('/', [DeliveryController::class, 'index'])->name('index');
+        Route::get('create', [DeliveryController::class, 'create'])->name('create');
+        Route::post('/', [DeliveryController::class, 'store'])->name('store');
+        Route::get('{delivery}', [DeliveryController::class, 'show'])->name('show');
+        Route::delete('{delivery}', [DeliveryController::class, 'destroy'])->name('destroy');
+        Route::get('{delivery}/print', [DeliveryController::class, 'print'])->name('print');
+    });
+
     // ============================================
     // Payment Routes
     // ============================================
-    // ========= Invoice Payments =========
-    Route::get('payments/create', [PaymentController::class, 'create'])
-        ->name('payments.create');    // AJAX: get form data
-    Route::post('payments', [PaymentController::class, 'store'])
-        ->name('payments.store');     // AJAX: store payment
-    Route::delete('payments/{payment}', [PaymentController::class, 'destroy'])
-        ->name('payments.destroy');   // AJAX: delete payment
+    Route::prefix('payments')->name('payments.')->group(function () {
+        // AJAX endpoints
+        Route::get('invoice/{invoice}/payments', [PaymentController::class, 'getForInvoice'])
+            ->name('for-invoice');
+
+        // Resource routes
+        Route::get('/', [PaymentController::class, 'index'])->name('index');
+        Route::get('create', [PaymentController::class, 'create'])->name('create');
+        Route::post('/', [PaymentController::class, 'store'])->name('store');
+        Route::get('{payment}', [PaymentController::class, 'show'])->name('show');
+        Route::delete('{payment}', [PaymentController::class, 'destroy'])->name('destroy');
+        Route::get('{payment}/print', [PaymentController::class, 'print'])->name('print');
+    });
 });

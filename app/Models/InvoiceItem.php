@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InvoiceItem extends Model
 {
@@ -31,35 +32,58 @@ class InvoiceItem extends Model
         'delivered_quantity' => 'decimal:3',
     ];
 
-    // Relationships
-    public function invoice()
+    /**
+     * Relationships
+     */
+    public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
     }
 
-    public function product()
+    public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
     }
 
-    public function unit()
+    public function unit(): BelongsTo
     {
         return $this->belongsTo(Unit::class);
     }
 
-    public function deliveryItems()
+    /**
+     * Get remaining quantity to be delivered
+     */
+    public function getRemainingQuantityAttribute(): float
     {
-        return $this->hasMany(DeliveryItem::class);
+        return max(0, (float) $this->quantity - (float) $this->delivered_quantity);
+    }
+
+    /**
+     * Check if fully delivered
+     */
+    public function isFullyDelivered(): bool
+    {
+        return (float) $this->delivered_quantity >= (float) $this->quantity;
+    }
+
+      // Accessors
+    public function getLineTotalAttribute()
+    {
+        $baseTotal = $this->quantity * $this->unit_price;
+        $discount = ($baseTotal * $this->discount_percent) / 100;
+        return $baseTotal - $discount;
     }
 
     // Methods
-    public function getRemainingQuantity()
+    public function recordDelivery($qty)
     {
-        return $this->quantity - $this->delivered_quantity;
+        $this->delivered_quantity += $qty;
+        $this->save();
     }
 
-    public function isFullyDelivered()
+    public function reverseDelivery($qty)
     {
-        return $this->delivered_quantity >= $this->quantity;
+        $this->delivered_quantity = max(0, $this->delivered_quantity - $qty);
+        $this->save();
     }
 }

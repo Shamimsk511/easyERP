@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Invoice extends Model
@@ -16,15 +19,20 @@ class Invoice extends Model
         'customer_id',
         'sales_account_id',
         'customer_ledger_account_id',
-        'sales_return_account_id',
+        'sales_return_account_id',   // Added: For sales returns
+        'transaction_id',            // Added: Link to accounting transaction
         'subtotal',
         'discount_amount',
         'tax_amount',
         'total_amount',
-        'outstanding_at_creation',
+        'total_paid',
         'delivery_status',
+        'status',                    // Added: draft, posted, cancelled
+        'outstanding_at_creation',
         'internal_notes',
         'customer_notes',
+        'created_by',                // Added: Audit field
+        'updated_by',                // Added: Audit field
         'deleted_by',
     ];
 
@@ -35,113 +43,112 @@ class Invoice extends Model
         'discount_amount' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
+        'total_paid' => 'decimal:2',
         'outstanding_at_creation' => 'decimal:2',
     ];
 
-    // Relationships
-    public function customer()
+    /**
+     * Relationships
+     */
+    public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
 
-    public function items()
+    public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
     }
 
-    public function deliveries()
+    public function deliveries(): HasMany
     {
         return $this->hasMany(Delivery::class);
     }
 
-    public function payments()
+    public function payments(): HasMany
     {
         return $this->hasMany(InvoicePayment::class);
     }
 
-    public function deletedBy()
-    {
-        return $this->belongsTo(User::class, 'deleted_by');
-    }
-
-    public function salesAccount()
+    public function salesAccount(): BelongsTo
     {
         return $this->belongsTo(Account::class, 'sales_account_id');
     }
 
-    public function customerLedgerAccount()
+    public function customerLedgerAccount(): BelongsTo
     {
         return $this->belongsTo(Account::class, 'customer_ledger_account_id');
     }
 
-    // Scopes
-    public function scopeActive($query)
+    public function salesReturnAccount(): BelongsTo
     {
-        return $query->whereNull('deleted_at');
+        return $this->belongsTo(Account::class, 'sales_return_account_id');
     }
 
-    public function scopeDeleted($query)
+    public function transaction(): BelongsTo
     {
-        return $query->whereNotNull('deleted_at');
+        return $this->belongsTo(Transaction::class);
     }
 
-    public function scopeByCustomer($query, $customerId)
+    public function createdBy(): BelongsTo
     {
-        return $query->where('customer_id', $customerId);
+        return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function scopeByDateRange($query, $startDate, $endDate)
+    public function updatedBy(): BelongsTo
     {
-        return $query->whereBetween('invoice_date', [$startDate, $endDate]);
+        return $this->belongsTo(User::class, 'updated_by');
     }
 
-    // Accessors & Methods
-    public function getTotalPaidAttribute()
+    public function deletedBy(): BelongsTo
     {
-        return $this->payments()->where('deleted_at', null)->sum('amount') ?? 0;
+        return $this->belongsTo(User::class, 'deleted_by');
     }
 
-    public function getOutstandingBalanceAttribute()
+    /**
+     * Get all transactions linked to this invoice (polymorphic)
+     */
+    public function transactions(): MorphMany
     {
-        return $this->total_amount - $this->total_paid;
+        return $this->morphMany(Transaction::class, 'source');
     }
 
-    public function getDeliveredQuantityAttribute($itemId)
+    /**
+     * Accessors
+     */
+    public function getOutstandingBalanceAttribute(): float
     {
-        return $this->items()
-            ->where('id', $itemId)
-            ->first()
-            ->delivered_quantity ?? 0;
+        return (float) $this->total_amount - (float) $this->total_paid;
     }
 
-    public function getTotalDeliveredQuantityByInvoice()
+    public function getIsPaidAttribute(): bool
     {
-        $allDelivered = true;
-        foreach ($this->items as $item) {
-            if ($item->delivered_quantity < $item->quantity) {
-                $allDelivered = false;
-                break;
-            }
-        }
-        return $allDelivered;
+        return $this->outstanding_balance <= 0;
     }
 
-    public function isFullyDelivered()
+    public function getIsOverdueAttribute(): bool
     {
-        return $this->delivery_status === 'delivered';
+        return $this->due_date && $this->due_date->isPast() && !$this->is_paid;
     }
 
-    public function updateDeliveryStatus()
+    /**
+     * Record a payment against this invoice
+     */
+    public function recordPayment(float $amount): void
     {
-        $totalQty = 0;
-        $deliveredQty = 0;
+        $this->total_paid = (float) $this->total_paid + $amount;
+        $this->save();
+    }
 
-        foreach ($this->items as $item) {
-            $totalQty += $item->quantity;
-            $deliveredQty += $item->delivered_quantity;
-        }
+    /**
+     * Update delivery status based on items
+     */
+    public function updateDeliveryStatus(): void
+    {
+        $totalQty = $this->items()->sum('quantity');
+        $deliveredQty = $this->items()->sum('delivered_quantity');
 
-        if ($deliveredQty == 0) {
+        if ($deliveredQty <= 0) {
             $this->delivery_status = 'pending';
         } elseif ($deliveredQty >= $totalQty) {
             $this->delivery_status = 'delivered';
@@ -152,16 +159,33 @@ class Invoice extends Model
         $this->save();
     }
 
-    public function canBeDeleted()
+    /**
+     * Scopes
+     */
+    public function scopePending($query)
     {
-        // Can delete only if not soft deleted already
-        return $this->deleted_at === null;
+        return $query->where('delivery_status', 'pending');
     }
 
-    public function markAsDeleted($userId)
+    public function scopePartial($query)
     {
-        $this->deleted_by = $userId;
-        $this->deleted_at = now();
-        $this->save();
+        return $query->where('delivery_status', 'partial');
+    }
+
+    public function scopeDelivered($query)
+    {
+        return $query->where('delivery_status', 'delivered');
+    }
+
+    public function scopeUnpaid($query)
+    {
+        return $query->whereRaw('total_amount > total_paid');
+    }
+
+    public function scopeOverdue($query)
+    {
+        return $query->whereNotNull('due_date')
+            ->whereDate('due_date', '<', now())
+            ->whereRaw('total_amount > total_paid');
     }
 }

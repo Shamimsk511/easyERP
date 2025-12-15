@@ -24,14 +24,13 @@ class Vendor extends Model
         'city',
         'state',
         'postal_code',
-        'country',  
-        'name',
+        'country',
         'description',
         'ledger_account_id',
         'opening_balance',
         'opening_balance_type',
         'opening_balance_date',
-        'is_active', // Add this
+        'is_active',
     ];
 
     protected $casts = [
@@ -39,6 +38,23 @@ class Vendor extends Model
         'opening_balance_date' => 'date',
         'is_active' => 'boolean',
     ];
+
+    /**
+     * Boot method for model events
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Auto-generate vendor_code on creating
+        static::creating(function ($vendor) {
+            if (empty($vendor->vendor_code)) {
+                $lastVendor = static::withTrashed()->latest('id')->first();
+                $nextId = $lastVendor ? $lastVendor->id + 1 : 1;
+                $vendor->vendor_code = 'V' . str_pad($nextId, 5, '0', STR_PAD_LEFT);
+            }
+        });
+    }
 
     /**
      * Relationships
@@ -53,15 +69,18 @@ class Vendor extends Model
         return $this->hasMany(PurchaseOrder::class);
     }
 
+    /**
+     * Get all transaction entries through the ledger account
+     */
     public function transactionEntries(): HasManyThrough
     {
-return $this->hasManyThrough(
+        return $this->hasManyThrough(
             TransactionEntry::class,
             Account::class,
-            'id',              // Foreign key on accounts table
-            'account_id',      // Foreign key on transaction_entries table
-            'ledger_account_id', // Local key on vendors table
-            'id'               // Local key on accounts table
+            'id',                   // FK on accounts table
+            'account_id',           // FK on transaction_entries table
+            'ledger_account_id',    // Local key on vendors table
+            'id'                    // Local key on accounts table
         );
     }
 
@@ -77,46 +96,81 @@ return $this->hasManyThrough(
     {
         return $query->where('is_active', false);
     }
-     public function getCurrentBalanceAttribute(): float
+
+    public function scopeWithBalance($query)
+    {
+        return $query->withCount([
+            'transactionEntries as debit_total' => function ($q) {
+                $q->where('type', 'debit')->select(\DB::raw('COALESCE(SUM(amount), 0)'));
+            },
+            'transactionEntries as credit_total' => function ($q) {
+                $q->where('type', 'credit')->select(\DB::raw('COALESCE(SUM(amount), 0)'));
+            },
+        ]);
+    }
+
+    /**
+     * Get current balance from ledger
+     * Positive = We owe vendor (Payable)
+     * Negative = Vendor owes us (Advance paid)
+     */
+    public function getCurrentBalanceAttribute(): float
     {
         if (!$this->ledger_account_id) {
             return 0;
         }
 
-        $account = Account::find($this->ledger_account_id);
+        $account = $this->ledgerAccount;
         if (!$account) {
             return 0;
         }
 
-        // Get credits (payments TO vendor - increases liability)
-        $credits = $account->transactionEntries()
-            ->whereHas('transaction', function ($query) {
-                $query->where('type', '!=', 'opening_balance');
-            })
-            ->where('type', 'credit')
-            ->sum('amount');
-
-        // Get debits (payments FROM vendor - decreases liability)
         $debits = $account->transactionEntries()
-            ->whereHas('transaction', function ($query) {
-                $query->where('type', '!=', 'opening_balance');
-            })
             ->where('type', 'debit')
             ->sum('amount');
 
-        $transactionBalance = $credits - $debits;
+        $credits = $account->transactionEntries()
+            ->where('type', 'credit')
+            ->sum('amount');
 
-        // Add opening balance
-        if ($this->opening_balance > 0) {
-            if ($this->opening_balance_type === 'credit') {
-                $balance = $transactionBalance + $this->opening_balance;
-            } else {
-                $balance = $transactionBalance - $this->opening_balance;
-            }
-        } else {
-            $balance = $transactionBalance;
+        // Vendor accounts are liability type (Credit increases balance)
+        $balance = $account->opening_balance + $credits - $debits;
+
+        return (float) $balance;
+    }
+
+    /**
+     * Get formatted balance with type indicator
+     */
+    public function getFormattedBalanceAttribute(): string
+    {
+        $balance = $this->current_balance;
+        $amount = number_format(abs($balance), 2);
+
+        if ($balance > 0) {
+            return "৳ {$amount} (Payable)";
+        } elseif ($balance < 0) {
+            return "৳ {$amount} (Advance)";
         }
 
-        return round($balance, 2);
+        return "৳ 0.00";
+    }
+
+    /**
+     * Check if vendor has outstanding balance
+     */
+    public function hasOutstanding(): bool
+    {
+        return $this->current_balance > 0;
+    }
+
+    /**
+     * Get total purchase amount
+     */
+    public function getTotalPurchasesAttribute(): float
+    {
+        return (float) $this->purchaseOrders()
+            ->where('status', 'received')
+            ->sum('total_amount');
     }
 }
