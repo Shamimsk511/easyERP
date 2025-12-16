@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Invoice extends Model
@@ -19,20 +18,25 @@ class Invoice extends Model
         'customer_id',
         'sales_account_id',
         'customer_ledger_account_id',
-        'sales_return_account_id',   // Added: For sales returns
-        'transaction_id',            // Added: Link to accounting transaction
+        'sales_return_account_id',
+        'labour_account_id',
+        'transportation_account_id',
+        'transaction_id',
         'subtotal',
         'discount_amount',
         'tax_amount',
+        'labour_amount',
+        'transportation_amount',
+        'round_off_amount',
         'total_amount',
         'total_paid',
         'delivery_status',
-        'status',                    // Added: draft, posted, cancelled
+        'status',
         'outstanding_at_creation',
         'internal_notes',
         'customer_notes',
-        'created_by',                // Added: Audit field
-        'updated_by',                // Added: Audit field
+        'created_by',
+        'updated_by',
         'deleted_by',
     ];
 
@@ -42,14 +46,15 @@ class Invoice extends Model
         'subtotal' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'tax_amount' => 'decimal:2',
+        'labour_amount' => 'decimal:2',
+        'transportation_amount' => 'decimal:2',
+        'round_off_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
         'total_paid' => 'decimal:2',
         'outstanding_at_creation' => 'decimal:2',
     ];
 
-    /**
-     * Relationships
-     */
+    // Relationships
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
@@ -58,6 +63,16 @@ class Invoice extends Model
     public function items(): HasMany
     {
         return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function productItems(): HasMany
+    {
+        return $this->hasMany(InvoiceItem::class)->where('item_type', 'product');
+    }
+
+    public function passiveItems(): HasMany
+    {
+        return $this->hasMany(InvoiceItem::class)->where('item_type', 'passive_income');
     }
 
     public function deliveries(): HasMany
@@ -80,9 +95,14 @@ class Invoice extends Model
         return $this->belongsTo(Account::class, 'customer_ledger_account_id');
     }
 
-    public function salesReturnAccount(): BelongsTo
+    public function labourAccount(): BelongsTo
     {
-        return $this->belongsTo(Account::class, 'sales_return_account_id');
+        return $this->belongsTo(Account::class, 'labour_account_id');
+    }
+
+    public function transportationAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'transportation_account_id');
     }
 
     public function transaction(): BelongsTo
@@ -95,58 +115,39 @@ class Invoice extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function updatedBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'updated_by');
-    }
-
-    public function deletedBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'deleted_by');
-    }
-
-    /**
-     * Get all transactions linked to this invoice (polymorphic)
-     */
-    public function transactions(): MorphMany
-    {
-        return $this->morphMany(Transaction::class, 'source');
-    }
-
-    /**
-     * Accessors
-     */
+    // Accessors
     public function getOutstandingBalanceAttribute(): float
     {
-        return (float) $this->total_amount - (float) $this->total_paid;
+        return max(0, $this->total_amount - $this->total_paid);
     }
 
-    public function getIsPaidAttribute(): bool
+    public function getIsFullyPaidAttribute(): bool
     {
         return $this->outstanding_balance <= 0;
     }
 
-    public function getIsOverdueAttribute(): bool
+    public function getAdditionalChargesAttribute(): float
     {
-        return $this->due_date && $this->due_date->isPast() && !$this->is_paid;
+        return ($this->labour_amount ?? 0) + ($this->transportation_amount ?? 0);
     }
 
-    /**
-     * Record a payment against this invoice
-     */
+    // Methods
     public function recordPayment(float $amount): void
     {
-        $this->total_paid = (float) $this->total_paid + $amount;
+        $this->total_paid = min($this->total_amount, $this->total_paid + $amount);
         $this->save();
     }
 
-    /**
-     * Update delivery status based on items
-     */
+    public function reversePayment(float $amount): void
+    {
+        $this->total_paid = max(0, $this->total_paid - $amount);
+        $this->save();
+    }
+
     public function updateDeliveryStatus(): void
     {
-        $totalQty = $this->items()->sum('quantity');
-        $deliveredQty = $this->items()->sum('delivered_quantity');
+        $totalQty = $this->productItems()->sum('quantity');
+        $deliveredQty = $this->productItems()->sum('delivered_quantity');
 
         if ($deliveredQty <= 0) {
             $this->delivery_status = 'pending';
@@ -155,37 +156,22 @@ class Invoice extends Model
         } else {
             $this->delivery_status = 'partial';
         }
-
         $this->save();
     }
 
-    /**
-     * Scopes
-     */
-    public function scopePending($query)
+    public static function generateInvoiceNumber(): string
     {
-        return $query->where('delivery_status', 'pending');
-    }
+        $prefix = 'INV-';
+        $year = now()->format('Y');
+        $lastInvoice = static::withTrashed()
+            ->whereYear('created_at', $year)
+            ->orderByDesc('id')
+            ->first();
 
-    public function scopePartial($query)
-    {
-        return $query->where('delivery_status', 'partial');
-    }
+        $nextNumber = $lastInvoice
+            ? (int) substr($lastInvoice->invoice_number, -5) + 1
+            : 1;
 
-    public function scopeDelivered($query)
-    {
-        return $query->where('delivery_status', 'delivered');
-    }
-
-    public function scopeUnpaid($query)
-    {
-        return $query->whereRaw('total_amount > total_paid');
-    }
-
-    public function scopeOverdue($query)
-    {
-        return $query->whereNotNull('due_date')
-            ->whereDate('due_date', '<', now())
-            ->whereRaw('total_amount > total_paid');
+        return $prefix . $year . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
     }
 }

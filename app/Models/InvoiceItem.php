@@ -10,10 +10,15 @@ class InvoiceItem extends Model
     protected $fillable = [
         'invoice_id',
         'product_id',
+        'passive_account_id',
         'item_type',
         'description',
         'unit_id',
         'quantity',
+        'alt_qty_display',
+        'alt_qty_boxes',
+        'alt_qty_pieces',
+        'base_quantity',
         'unit_price',
         'discount_percent',
         'discount_amount',
@@ -24,6 +29,9 @@ class InvoiceItem extends Model
 
     protected $casts = [
         'quantity' => 'decimal:3',
+        'alt_qty_boxes' => 'decimal:3',
+        'alt_qty_pieces' => 'decimal:3',
+        'base_quantity' => 'decimal:4',
         'unit_price' => 'decimal:2',
         'discount_percent' => 'decimal:2',
         'discount_amount' => 'decimal:2',
@@ -32,9 +40,7 @@ class InvoiceItem extends Model
         'delivered_quantity' => 'decimal:3',
     ];
 
-    /**
-     * Relationships
-     */
+    // Relationships
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
@@ -50,40 +56,156 @@ class InvoiceItem extends Model
         return $this->belongsTo(Unit::class);
     }
 
-    /**
-     * Get remaining quantity to be delivered
-     */
-    public function getRemainingQuantityAttribute(): float
+    public function passiveAccount(): BelongsTo
     {
-        return max(0, (float) $this->quantity - (float) $this->delivered_quantity);
+        return $this->belongsTo(Account::class, 'passive_account_id');
+    }
+
+    // Accessors
+    public function getPendingQuantityAttribute(): float
+    {
+        return max(0, $this->quantity - $this->delivered_quantity);
+    }
+
+    public function getIsFullyDeliveredAttribute(): bool
+    {
+        return $this->pending_quantity <= 0;
     }
 
     /**
-     * Check if fully delivered
+     * Calculate and return alternative quantity breakdown
+     * 
+     * Example: 110 sft with conversion factors:
+     * - 1 pcs = 0.6670 sft
+     * - 1 box = 16.6670 sft (25 pcs)
+     * 
+     * Result: 6 boxes + 15 pcs (with 0.8 rounding rule)
+     * 
+     * @param float $baseQty Quantity in base unit (e.g., sft)
+     * @param Product|null $product
+     * @return array
      */
-    public function isFullyDelivered(): bool
+    public static function calculateAltQtyBreakdown(float $baseQty, ?Product $product = null): array
     {
-        return (float) $this->delivered_quantity >= (float) $this->quantity;
+        $result = [
+            'display' => number_format($baseQty, 2) . ' ' . ($product?->baseUnit?->symbol ?? 'units'),
+            'boxes' => 0,
+            'pieces' => 0,
+            'remainder' => 0,
+            'base_qty' => $baseQty,
+        ];
+
+        if (!$product || $baseQty <= 0) {
+            return $result;
+        }
+
+        $product->load(['baseUnit', 'alternativeUnits']);
+        $altUnits = $product->alternativeUnits->sortByDesc('pivot.conversion_factor');
+
+        if ($altUnits->isEmpty()) {
+            return $result;
+        }
+
+        $remaining = $baseQty;
+        $displayParts = [];
+        $boxes = 0;
+        $pieces = 0;
+
+        foreach ($altUnits as $unit) {
+            $factor = $unit->pivot->conversion_factor;
+            
+            if ($remaining >= $factor) {
+                $qty = $remaining / $factor;
+                
+                // Apply 0.8 rounding rule: >= 0.8 rounds up, < 0.8 floors
+                $fractional = $qty - floor($qty);
+                $roundedQty = $fractional >= 0.8 ? ceil($qty) : floor($qty);
+                
+                if ($roundedQty > 0) {
+                    // Identify box vs pieces by symbol or conversion factor
+                    $symbolLower = strtolower($unit->symbol);
+                    if (str_contains($symbolLower, 'box') || $factor > 5) {
+                        $boxes = $roundedQty;
+                        $displayParts[] = (int)$roundedQty . ' ' . $unit->symbol;
+                    } else {
+                        $pieces = $roundedQty;
+                        $displayParts[] = (int)$roundedQty . ' ' . $unit->symbol;
+                    }
+                    
+                    $remaining -= $roundedQty * $factor;
+                }
+            }
+        }
+
+        // Handle remaining base units
+        if ($remaining > 0.01) {
+            $fractional = $remaining - floor($remaining);
+            $roundedRemainder = $fractional >= 0.8 ? ceil($remaining) : floor($remaining);
+            
+            if ($roundedRemainder > 0) {
+                $displayParts[] = number_format($roundedRemainder, 2) . ' ' . $product->baseUnit->symbol;
+            }
+            $result['remainder'] = $roundedRemainder;
+        }
+
+        $result['display'] = implode(' + ', $displayParts) ?: $result['display'];
+        $result['boxes'] = $boxes;
+        $result['pieces'] = $pieces;
+
+        return $result;
     }
 
-      // Accessors
-    public function getLineTotalAttribute()
+    /**
+     * Calculate alternative quantity from base quantity for this item
+     */
+    public function calculateAltQty(): array
     {
-        $baseTotal = $this->quantity * $this->unit_price;
-        $discount = ($baseTotal * $this->discount_percent) / 100;
-        return $baseTotal - $discount;
+        return self::calculateAltQtyBreakdown($this->quantity, $this->product);
     }
 
-    // Methods
-    public function recordDelivery($qty)
+    /**
+     * Calculate line total with discount
+     */
+    public function calculateLineTotal(): float
     {
-        $this->delivered_quantity += $qty;
-        $this->save();
+        $subtotal = $this->quantity * $this->unit_price;
+        $discountAmount = 0;
+
+        if ($this->discount_percent > 0) {
+            $discountAmount = $subtotal * ($this->discount_percent / 100);
+        } elseif ($this->discount_amount > 0) {
+            $discountAmount = $this->discount_amount;
+        }
+
+        return $subtotal - $discountAmount;
     }
 
-    public function reverseDelivery($qty)
+    /**
+     * Boot method to auto-calculate values on save
+     */
+    protected static function boot()
     {
-        $this->delivered_quantity = max(0, $this->delivered_quantity - $qty);
-        $this->save();
+        parent::boot();
+
+        static::saving(function ($item) {
+            // Auto-calculate line_total
+            if ($item->item_type === 'product') {
+                $item->line_total = $item->calculateLineTotal();
+                
+                // Calculate alt qty display
+                if ($item->product_id) {
+                    $altQty = $item->calculateAltQty();
+                    $item->alt_qty_display = $altQty['display'];
+                    $item->alt_qty_boxes = $altQty['boxes'];
+                    $item->alt_qty_pieces = $altQty['pieces'];
+                    $item->base_quantity = $altQty['base_qty'];
+                }
+            }
+
+            // Store rate for customer history
+            if (!$item->rate_given_to_customer && $item->unit_price > 0) {
+                $item->rate_given_to_customer = $item->unit_price;
+            }
+        });
     }
 }

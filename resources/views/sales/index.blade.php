@@ -1,66 +1,42 @@
 @extends('adminlte::page')
-@section('title', 'Sales / Invoices')
+
+@section('title', 'Sales Invoices')
 
 @section('content_header')
-    <div class="row mb-2">
-        <div class="col-sm-6">
-            <h1>Sales / Invoices</h1>
-        </div>
-        <div class="col-sm-6 text-right">
-            <a href="{{ route('sales.create') }}" class="btn btn-primary">
-                <i class="fas fa-plus"></i> New Invoice
-            </a>
-        </div>
+    <div class="d-flex justify-content-between align-items-center">
+        <h1><i class="fas fa-file-invoice-dollar"></i> Sales Invoices</h1>
+        <a href="{{ route('sales.create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Invoice
+        </a>
     </div>
 @stop
 
 @section('content')
 <div class="card">
     <div class="card-header">
-        <h3 class="card-title">Invoice List</h3>
-    </div>
-    <div class="card-body">
-
-        <div class="row mb-3">
-            <div class="col-md-3">
-                <div class="form-group">
-                    <label for="filterDelivery">Delivery Status</label>
-                    <select id="filterDelivery" class="form-control">
-                        <option value="">All Status</option>
-                        <option value="pending">Pending</option>
-                        <option value="partial">Partial</option>
-                        <option value="delivered">Delivered</option>
-                    </select>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="form-group">
-                    <label for="filterDeleted">Show Deleted</label>
-                    <select id="filterDeleted" class="form-control">
-                        <option value="no">Active Only</option>
-                        <option value="yes">Deleted Only</option>
-                    </select>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <label>&nbsp;</label>
-                <button id="resetFilters" class="btn btn-secondary btn-block">
-                    <i class="fas fa-redo"></i> Reset Filters
-                </button>
+        <h3 class="card-title">All Invoices</h3>
+        <div class="card-tools">
+            <div class="btn-group btn-group-sm">
+                <button type="button" class="btn btn-default filter-btn active" data-filter="all">All</button>
+                <button type="button" class="btn btn-warning filter-btn" data-filter="pending">Pending</button>
+                <button type="button" class="btn btn-info filter-btn" data-filter="partial">Partial</button>
+                <button type="button" class="btn btn-success filter-btn" data-filter="delivered">Delivered</button>
             </div>
         </div>
-
-        <table id="invoicesTable" class="table table-bordered table-hover table-sm">
+    </div>
+    <div class="card-body">
+        <table id="invoices-table" class="table table-bordered table-striped table-hover">
             <thead>
                 <tr>
-                    <th>#</th>
                     <th>Invoice #</th>
-                    <th>Customer</th>
                     <th>Date</th>
-                    <th>Amount</th>
+                    <th>Customer</th>
+                    <th>Phone</th>
+                    <th>Total</th>
                     <th>Paid</th>
-                    <th>Outstanding</th>
-                    <th>Delivery</th>
+                    <th>Balance</th>
+                    <th>Add. Charges</th>
+                    <th>Status</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -71,65 +47,60 @@
 
 @section('css')
 <style>
-    .select2-container .select2-selection--single {
-        height: 38px !important;
-        border: 1px solid #ced4da !important;
+    #invoices-table th, #invoices-table td {
+        vertical-align: middle;
     }
-    .select2-container--default .select2-selection--single .select2-selection__rendered {
-        line-height: 36px !important;
-    }
-    .select2-container--default .select2-selection--single .select2-selection__arrow {
-        height: 36px !important;
+    .filter-btn.active {
+        font-weight: bold;
     }
 </style>
 @stop
 
-@push('js')
+@section('js')
 <script>
 $(document).ready(function() {
-    // DataTable initialization
-    const table = $('#invoicesTable').DataTable({
+    let currentFilter = 'all';
+
+    const table = $('#invoices-table').DataTable({
         processing: true,
         serverSide: true,
         ajax: {
-            url: '{{ route("sales.data") }}',
+            url: '{{ route("sales.index") }}',
             data: function(d) {
-                d.delivery_status = $('#filterDelivery').val();
-                d.show_deleted = $('#filterDeleted').val();
+                d.delivery_status = currentFilter !== 'all' ? currentFilter : null;
             }
         },
         columns: [
-            { data: 'id', name: 'id' },
             { data: 'invoice_number', name: 'invoice_number' },
-            { data: 'customer_name', name: 'customer_name' },
             { data: 'invoice_date', name: 'invoice_date' },
+            { data: 'customer_name', name: 'customer_name' },
+            { data: 'customer_phone', name: 'customer_phone' },
             { data: 'total_amount', name: 'total_amount', className: 'text-right' },
             { data: 'total_paid', name: 'total_paid', className: 'text-right' },
-            { data: 'outstanding_balance', name: 'outstanding_balance', className: 'text-right' },
-            { data: 'delivery_status_badge', name: 'delivery_status', orderable: false },
-            { data: 'action', name: 'action', orderable: false, searchable: false }
+            { data: 'outstanding_balance', name: 'outstanding_balance', className: 'text-right font-weight-bold' },
+            { data: 'additional_charges', name: 'additional_charges', className: 'text-center' },
+            { data: 'delivery_status_badge', name: 'delivery_status', className: 'text-center' },
+            { data: 'action', name: 'action', orderable: false, searchable: false, className: 'text-center' }
         ],
-        order: [[0, 'desc']],
+        order: [[1, 'desc']],
         pageLength: 25,
+        responsive: true,
         language: {
             processing: '<i class="fas fa-spinner fa-spin fa-2x"></i>'
         }
     });
 
-    // Filter events
-    $('#filterDelivery, #filterDeleted').on('change', function() {
+    // Filter buttons
+    $('.filter-btn').on('click', function() {
+        $('.filter-btn').removeClass('active');
+        $(this).addClass('active');
+        currentFilter = $(this).data('filter');
         table.ajax.reload();
     });
 
-    // Reset filters
-    $('#resetFilters').on('click', function() {
-        $('#filterDelivery, #filterDeleted').val('');
-        table.ajax.reload();
-    });
-
-    // Delete invoice handler
-    $(document).on('click', '.delete-invoice', function() {
-        const invoiceId = $(this).data('id');
+    // Delete invoice
+    $(document).on('click', '.delete-invoice-btn', function() {
+        const id = $(this).data('id');
         
         Swal.fire({
             title: 'Delete Invoice?',
@@ -137,13 +108,13 @@ $(document).ready(function() {
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: 'Yes, delete!'
         }).then((result) => {
             if (result.isConfirmed) {
                 $.ajax({
-                    url: '/sales/' + invoiceId,
-                    type: 'DELETE',
-                    headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                    url: `/sales/${id}`,
+                    method: 'DELETE',
+                    data: { _token: '{{ csrf_token() }}' },
                     success: function(response) {
                         if (response.success) {
                             Swal.fire('Deleted!', response.message, 'success');
@@ -161,4 +132,4 @@ $(document).ready(function() {
     });
 });
 </script>
-@endpush
+@stop
